@@ -1,0 +1,8 @@
+{
+  "appId": "com.daesang.goldentimelog",
+  "appName": "골든타임 생산일지",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  }
+}
