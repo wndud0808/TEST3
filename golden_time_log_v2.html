@@ -1,5 +1,5 @@
 <title>골든타임 생산일지</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Baloo+2:wght@700&display=swap">
 <style>
 :root{
   --bg:#EFF5F3; --surface:#FFFFFF; --surface-2:#E4EEEB;
@@ -59,26 +59,37 @@ input{font:inherit;color:inherit;}
 .appbar h1{font-size:16px;font-weight:500;margin:0;flex:1;letter-spacing:-0.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .appbar .rightaction{font-size:13px;font-weight:500;color:var(--primary);padding:6px 10px;border-radius:999px;flex:0 0 auto;}
 .appbar .rightaction:hover{background:var(--surface-2);}
-.appbar .ci{display:flex;align-items:center;gap:5px;flex:0 0 auto;font-weight:700;font-size:12px;letter-spacing:0.01em;color:var(--text-secondary);}
-.appbar .ci-mark{flex:0 0 auto;display:block;}
+.appbar .ci{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+.appbar .ciword{font-weight:700;font-size:11px;letter-spacing:0.01em;color:var(--text-secondary);font-family:var(--font-sans);}
+.cimark{position:relative;width:20px;height:26px;flex:0 0 auto;display:inline-grid;grid-template-columns:auto auto;column-gap:1px;line-height:0.72;font-family:'Baloo 2',var(--font-sans);font-weight:700;}
+.cimark span{font-size:12px;}
+.cimark .cl-d{color:#E8635A;}
+.cimark .cl-e{color:#F2924B;grid-column:2;}
+.cimark .cl-s{color:#4B4A9C;margin-top:-1px;}
+.cimark .cl-n{color:#D9A441;margin-top:-1px;grid-column:2;}
+.cimark .cl-a{color:#7B4397;margin-top:-1px;}
+.cimark .cl-g{color:#E8935A;margin-top:-1px;grid-column:2;}
+.cimark .cl-ring{position:absolute;left:37%;top:33%;width:8px;height:8px;border:1.8px solid #E31E24;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;}
 
 .content{flex:1;overflow-y:auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:16px;}
-.content.tight{padding:12px 12px 20px;gap:10px;}
+.content.tight{padding:10px;gap:0;}
 .eyebrow{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);}
 
 .card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:16px;}
 
 /* home */
-.homegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.linetile{aspect-ratio:1/1;width:100%;background:var(--surface-2);border:0.5px solid var(--border);border-radius:22px;padding:14px;display:flex;flex-direction:column;justify-content:space-between;}
-.linetile:hover{border-color:var(--border-strong);}
+.homegrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;}
+.linetile{width:100%;height:100%;min-height:0;background:var(--surface-2);border:0.5px solid var(--border);border-radius:20px;padding:14px;display:flex;flex-direction:column;gap:8px;}
+.linetile.clickable:hover{border-color:var(--border-strong);}
 .tiletop{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
 .tilenumwrap{display:flex;align-items:baseline;gap:4px;}
-.tilenum{font-family:var(--font-mono);font-size:32px;font-weight:700;line-height:1;color:var(--text-primary);}
+.tilenum{font-family:var(--font-mono);font-size:30px;font-weight:700;line-height:1;color:var(--text-primary);}
 .tilelabel{font-size:12px;color:var(--text-muted);}
 .tilesub{font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.progresstrack{margin-top:6px;height:4px;border-radius:999px;background:var(--surface);overflow:hidden;}
+.progresstrack{height:4px;border-radius:999px;background:var(--surface);overflow:hidden;}
 .progressfill{height:100%;background:var(--primary);border-radius:999px;}
+.tilebtn{margin-top:auto;width:100%;background:var(--surface);border:0.5px solid var(--border-strong);color:var(--primary);font-size:12.5px;font-weight:500;padding:9px 10px;border-radius:11px;text-align:center;}
+.tilebtn:hover{border-color:var(--primary);}
 .chev{flex:0 0 auto;color:var(--text-muted);}
 
 .pill{font-size:11px;font-weight:500;padding:3px 9px;border-radius:999px;white-space:nowrap;}
@@ -181,16 +192,19 @@ var ICON = {
   camerasm:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   lock:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   check:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
-  badge:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 2.2 3.1-.5 1 3 2.8 1.5-.9 3 .9 3-2.8 1.5-1 3-3.1-.5L12 22l-2.4-2.2-3.1.5-1-3-2.8-1.5.9-3-.9-3 2.8-1.5 1-3 3.1.5z"/><path d="M9 12l2 2 4-4"/></svg>',
-  ci:'<svg width="17" height="17" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'+
-    '<ellipse cx="12" cy="12" rx="2.9" ry="1.9" fill="#E24A86" transform="rotate(-90 12 12) translate(0 -6.2)"/>'+
-    '<ellipse cx="12" cy="12" rx="2.9" ry="1.9" fill="#F2924B" transform="rotate(-18 12 12) translate(0 -6.2)"/>'+
-    '<ellipse cx="12" cy="12" rx="2.9" ry="1.9" fill="#6E3AA8" transform="rotate(54 12 12) translate(0 -6.2)"/>'+
-    '<ellipse cx="12" cy="12" rx="2.9" ry="1.9" fill="#F2B705" transform="rotate(126 12 12) translate(0 -6.2)"/>'+
-    '<ellipse cx="12" cy="12" rx="2.9" ry="1.9" fill="#EE6C2E" transform="rotate(198 12 12) translate(0 -6.2)"/>'+
-    '<circle cx="12" cy="12" r="3.1" fill="none" stroke="#E31C3D" stroke-width="2.2"/>'+
-    '</svg>'
+  badge:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 2.2 3.1-.5 1 3 2.8 1.5-.9 3 .9 3-2.8 1.5-1 3-3.1-.5L12 22l-2.4-2.2-3.1.5-1-3-2.8-1.5.9-3-.9-3 2.8-1.5 1-3 3.1.5z"/><path d="M9 12l2 2 4-4"/></svg>'
 };
+
+var CI_LOGO_HTML =
+  '<span class="ci" aria-hidden="true">'+
+    '<span class="cimark">'+
+      '<span class="cl-d">d</span><span class="cl-e">e</span>'+
+      '<span class="cl-s">s</span><span class="cl-n">n</span>'+
+      '<span class="cl-a">a</span><span class="cl-g">g</span>'+
+      '<span class="cl-ring"></span>'+
+    '</span>'+
+    '<span class="ciword">DAESANG</span>'+
+  '</span>';
 
 function pad(n){ return String(n).padStart(2,'0'); }
 function fmtTime(d){ d=new Date(d); return pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -264,6 +278,7 @@ var tempPick = { lineId:null, weight:null };
 function push(entry){ nav.push(entry); render(); }
 function goHome(){ nav = [{screen:'home'}]; render(); }
 function goBack(){ if(nav.length>1) nav.pop(); render(); }
+function tileKeydown(e, lineId){ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openLine(lineId); } }
 
 function openLine(lineId){
   var job = state.lines[lineId];
@@ -390,7 +405,7 @@ function renderAppBar(title, opts){
     '<button class="backbtn'+(opts.showBack?'':' hidden')+'" onclick="goBack()" aria-label="뒤로가기">'+ICON.back+'</button>'+
     '<h1>'+title+'</h1>'+
     (opts.rightLabel ? '<button class="rightaction" onclick="'+opts.rightAction+'">'+opts.rightLabel+'</button>' : '')+
-    '<span class="ci" aria-hidden="true"><span class="ci-mark">'+ICON.ci+'</span>DAESANG</span>';
+    CI_LOGO_HTML;
 }
 
 function cpTileHTML(lineId, job, key){
@@ -422,17 +437,20 @@ function renderHome(){
   [1,2,3,4].forEach(function(id){
     var job = state.lines[id];
     var meta = statusMeta(job);
-    var sub = job ? (job.weight+' · '+job.product) : '품목 미선택';
-    html += '<button class="linetile" onclick="openLine('+id+')">'+
+    var hasJob = !!job;
+    var sub = hasJob ? (job.weight+' · '+job.product) : '품목이 선택되지 않았어요';
+    var btnLabel = hasJob ? '품목 변경' : '품목선택';
+    var btnAction = hasJob ? 'changeItem('+id+')' : 'openLine('+id+')';
+    var wrapAttrs = hasJob ? ' class="linetile clickable" role="button" tabindex="0" onclick="openLine('+id+')" onkeydown="tileKeydown(event,'+id+')"' : ' class="linetile"';
+    html += '<div'+wrapAttrs+'>'+
       '<div class="tiletop">'+
         '<div class="tilenumwrap"><span class="tilenum">'+id+'</span><span class="tilelabel">호기</span></div>'+
         '<span class="pill '+meta.cls+'">'+meta.label+'</span>'+
       '</div>'+
-      '<div>'+
-        '<div class="tilesub">'+sub+(job && job.status==='in_progress' ? ' · '+filledCount(job)+'/6' : '')+'</div>'+
-        (job && job.status==='in_progress' ? '<div class="progresstrack"><div class="progressfill" style="width:'+(filledCount(job)/6*100)+'%"></div></div>' : '')+
-      '</div>'+
-    '</button>';
+      '<div class="tilesub">'+sub+(job && job.status==='in_progress' ? ' · '+filledCount(job)+'/6' : '')+'</div>'+
+      (job && job.status==='in_progress' ? '<div class="progresstrack"><div class="progressfill" style="width:'+(filledCount(job)/6*100)+'%"></div></div>' : '')+
+      '<button class="tilebtn" onclick="event.stopPropagation();'+btnAction+'">'+btnLabel+'</button>'+
+    '</div>';
   });
   html += '</div>';
   document.getElementById('screen-root').innerHTML = html;
