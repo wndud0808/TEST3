@@ -1,0 +1,1161 @@
+<title>골든타임 생산일지</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root{
+  --bg:#EFF5F3; --surface:#FFFFFF; --surface-2:#E4EEEB;
+  --border:#D4E0DC; --border-strong:#B9CAC4;
+  --text-primary:#15211D; --text-secondary:#55685F; --text-muted:#8A9C93;
+  --primary:#0E5A52; --primary-hover:#0A4740; --on-primary:#F4FBF9;
+  --gold:#B67A0C; --gold-bg:#FBF0D9; --gold-text:#7A520A;
+  --danger:#B5402B; --danger-bg:#FAEAE6;
+  --success:#276B45; --success-bg:#E6F2EA;
+  --shadow:0 20px 45px -25px rgba(15,40,35,0.35);
+  --font-sans:'Noto Sans KR','Apple SD Gothic Neo',sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0C1614; --surface:#14201D; --surface-2:#1A2924;
+    --border:#2A3A34; --border-strong:#3C4F47;
+    --text-primary:#E9F3EF; --text-secondary:#9FB6AC; --text-muted:#6E8B7F;
+    --primary:#4FC2AE; --primary-hover:#6BD4C0; --on-primary:#05231E;
+    --gold:#E3A83B; --gold-bg:#2E2410; --gold-text:#F2C878;
+    --danger:#E2695A; --danger-bg:#35201A;
+    --success:#6FCB98; --success-bg:#163224;
+    --shadow:0 20px 45px -25px rgba(0,0,0,0.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0C1614; --surface:#14201D; --surface-2:#1A2924;
+  --border:#2A3A34; --border-strong:#3C4F47;
+  --text-primary:#E9F3EF; --text-secondary:#9FB6AC; --text-muted:#6E8B7F;
+  --primary:#4FC2AE; --primary-hover:#6BD4C0; --on-primary:#05231E;
+  --gold:#E3A83B; --gold-bg:#2E2410; --gold-text:#F2C878;
+  --danger:#E2695A; --danger-bg:#35201A;
+  --success:#6FCB98; --success-bg:#163224;
+  --shadow:0 20px 45px -25px rgba(0,0,0,0.6);
+}
+*{box-sizing:border-box;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+body{background:var(--bg);font-family:var(--font-sans);color:var(--text-primary);}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent;}
+button:focus-visible, input:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+input{font:inherit;color:inherit;}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;}}
+
+.page{padding:2rem 1rem;display:flex;justify-content:center;}
+.phone{
+  width:100%;max-width:408px;background:var(--surface);
+  border:0.5px solid var(--border);border-radius:28px;box-shadow:var(--shadow);
+  overflow:hidden;display:flex;flex-direction:column;min-height:812px;position:relative;
+}
+
+/* modal sheets */
+.modal-overlay{position:absolute;inset:0;background:rgba(10,16,14,0.55);display:flex;align-items:flex-end;z-index:20;}
+.modal-overlay[hidden]{display:none;}
+.sheet{width:100%;background:var(--surface);border-radius:20px 20px 0 0;padding:18px 16px;display:flex;flex-direction:column;gap:14px;}
+.sheet h3{margin:0;font-size:15px;font-weight:500;}
+
+/* crop */
+.cropstage{position:relative;width:100%;overflow:hidden;border-radius:14px;background:#0b0f0e;}
+.cropstage img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;}
+.cropbox{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,0.55);cursor:move;touch-action:none;}
+.crophandle{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid var(--primary);touch-action:none;}
+.crophandle[data-h="tl"]{left:-9px;top:-9px;cursor:nwse-resize;}
+.crophandle[data-h="t"]{left:50%;top:-9px;transform:translateX(-50%);cursor:ns-resize;}
+.crophandle[data-h="tr"]{right:-9px;top:-9px;cursor:nesw-resize;}
+.crophandle[data-h="l"]{left:-9px;top:50%;transform:translateY(-50%);cursor:ew-resize;}
+.crophandle[data-h="r"]{right:-9px;top:50%;transform:translateY(-50%);cursor:ew-resize;}
+.crophandle[data-h="bl"]{left:-9px;bottom:-9px;cursor:nesw-resize;}
+.crophandle[data-h="b"]{left:50%;bottom:-9px;transform:translateX(-50%);cursor:ns-resize;}
+.crophandle[data-h="br"]{right:-9px;bottom:-9px;cursor:nwse-resize;}
+
+/* time wheel picker */
+.wheelrow{display:flex;gap:8px;position:relative;height:180px;}
+.wheelrow::before{content:'';position:absolute;left:0;right:0;top:72px;height:36px;background:var(--surface-2);border-radius:8px;pointer-events:none;z-index:0;}
+.wheelcol{flex:1;overflow-y:auto;scroll-snap-type:y mandatory;position:relative;z-index:1;scrollbar-width:none;}
+.wheelcol::-webkit-scrollbar{display:none;}
+.wheelpad{height:72px;flex:0 0 auto;}
+.wheelitem{height:36px;display:flex;align-items:center;justify-content:center;scroll-snap-align:center;font-family:var(--font-mono);font-size:16px;color:var(--text-muted);}
+.wheelitem.sel{color:var(--text-primary);font-weight:700;}
+.timepick{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--text-primary);background:var(--surface);border:0.5px solid var(--border-strong);padding:7px 11px;border-radius:999px;}
+.timepick:hover{border-color:var(--primary);color:var(--primary);}
+
+/* signature pad */
+.signpad-wrap{width:100%;aspect-ratio:16/9;background:var(--surface-2);border:1.5px dashed var(--border-strong);border-radius:14px;overflow:hidden;touch-action:none;}
+.signpad-wrap canvas{width:100%;height:100%;display:block;}
+
+/* role gate */
+.rolescreen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px;padding:8px;text-align:center;}
+.rolebrand{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.rolebrand .ciword{font-size:20px;}
+.roletitle{font-size:16px;font-weight:500;color:var(--text-primary);}
+.rolebtns{width:100%;display:flex;flex-direction:column;gap:12px;}
+.rolebtn{width:100%;padding:20px;border-radius:16px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
+.rolebtn:hover{border-color:var(--primary);}
+.rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
+.textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
+.textinput:focus-visible{border-color:var(--primary);}
+
+/* admin calendar */
+.calhead{display:flex;align-items:center;justify-content:space-between;}
+.calhead button{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
+.calhead button:hover{background:var(--surface-2);}
+.caltitle{font-size:15px;font-weight:500;font-family:var(--font-mono);}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.calwd{font-size:11px;color:var(--text-muted);text-align:center;padding:4px 0;}
+.calday{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:10px;font-size:13px;color:var(--text-muted);position:relative;background:transparent;}
+.calday.empty{visibility:hidden;}
+.calday.has-data{background:var(--surface-2);color:var(--text-primary);font-weight:700;}
+.calday.has-data:hover{border:1px solid var(--primary);}
+.calday.has-data::after{content:'';position:absolute;bottom:5px;width:4px;height:4px;border-radius:50%;background:var(--primary);}
+
+/* view-only photo lightbox */
+.viewsheet{width:100%;background:transparent;padding:0 16px 24px;display:flex;flex-direction:column;gap:12px;align-items:center;}
+.viewsheet img{width:100%;border-radius:14px;background:var(--surface);}
+.viewsheet .btn{max-width:200px;}
+.appbar{
+  display:flex;align-items:center;gap:10px;padding:16px;
+  border-bottom:0.5px solid var(--border);background:var(--surface);flex:0 0 auto;
+}
+.appbar .backbtn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:0 0 auto;color:var(--text-secondary);}
+.appbar .backbtn:hover{background:var(--surface-2);}
+.appbar .backbtn.hidden{visibility:hidden;}
+.appbar h1{font-size:16px;font-weight:500;margin:0;flex:1;letter-spacing:-0.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.appbar .rightaction{font-size:13px;font-weight:500;color:var(--primary);padding:6px 10px;border-radius:999px;flex:0 0 auto;}
+.appbar .rightaction:hover{background:var(--surface-2);}
+.ciword{font-weight:700;letter-spacing:0.02em;color:var(--text-secondary);}
+.appbar .ciword{flex:0 0 auto;font-size:12px;}
+.appbar .datepick{flex:0 0 auto;max-width:120px;font-family:var(--font-mono);font-size:12px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:8px;padding:5px 6px;color:var(--text-primary);}
+
+.content{flex:1;overflow-y:auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:16px;}
+.content.tight{padding:10px;gap:0;}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);}
+
+.card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:16px;}
+
+/* home */
+.homegrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;}
+.linetile{width:100%;height:100%;min-height:0;background:var(--surface-2);border:0.5px solid var(--border);border-radius:20px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+.tilehead{display:flex;align-items:baseline;gap:4px;flex:0 0 auto;padding:0 2px;}
+.tilenum{font-family:var(--font-mono);font-size:22px;font-weight:700;line-height:1;color:var(--text-primary);}
+.tilelabel{font-size:11px;color:var(--text-muted);}
+.slotlist{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;}
+.slotrow{flex:1;min-height:0;width:100%;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;font-weight:500;color:var(--text-primary);}
+.slotrow:hover{border-color:var(--primary);}
+.slotrow.empty{color:var(--text-muted);border-style:dashed;font-weight:400;}
+.slotname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.slotdot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;}
+.chev{flex:0 0 auto;color:var(--text-muted);}
+
+/* weight grid */
+.gridpick{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.weighttile{background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:22px 8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:19px;font-weight:700;}
+.weighttile:hover{border-color:var(--primary);color:var(--primary);}
+
+/* product list */
+.productrow{display:flex;align-items:center;justify-content:space-between;width:100%;background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:15px 16px;font-size:14px;font-weight:500;}
+.productrow:hover{border-color:var(--primary);}
+
+/* hero */
+.hero{background:var(--gold-bg);border-radius:16px;padding:18px 18px 16px;}
+.hero .eyebrow{color:var(--gold-text);}
+.heronum{font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--gold-text);margin:4px 0 10px;letter-spacing:-0.01em;}
+.heromuted{font-size:13px;color:var(--gold-text);opacity:0.85;}
+.herolegend{margin-top:12px;padding-top:12px;border-top:0.5px solid color-mix(in srgb, var(--gold-text) 25%, transparent);font-size:12px;color:var(--gold-text);opacity:0.85;display:flex;flex-direction:column;gap:4px;}
+
+/* checkpoint grid */
+.cpgrid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;}
+.cpwrap{display:flex;flex-direction:column;gap:4px;}
+.cpmatch{font-size:10px;font-weight:700;text-align:center;padding:3px 4px;border-radius:6px;}
+.cpmatch.match{background:var(--success-bg);color:var(--success);}
+.cpmatch.mismatch{background:var(--danger-bg);color:var(--danger);}
+.cptile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;aspect-ratio:1/1;border-radius:14px;padding:8px;text-align:center;}
+.cptile.filled{background:var(--surface-2);border:0.5px solid var(--border);position:relative;}
+.cptile.filled img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:14px;}
+.cptile.filled .cpoverlay{position:absolute;inset:0;background:linear-gradient(to top, rgba(0,0,0,0.55), transparent 55%);border-radius:14px;}
+.cptile.filled .cplabel, .cptile.filled .cptime{position:relative;color:#fff;z-index:1;}
+.cptile.filled .checkbadge{position:absolute;top:6px;right:6px;width:18px;height:18px;border-radius:50%;background:var(--success);color:#fff;display:flex;align-items:center;justify-content:center;z-index:1;}
+.cptile.active{background:var(--surface);border:1.5px dashed var(--border-strong);color:var(--primary);}
+.cptile.active:hover{border-color:var(--primary);}
+.cptile.locked{background:var(--surface-2);border:0.5px solid var(--border);color:var(--text-muted);cursor:default;}
+.cplabel{font-size:11px;font-weight:500;line-height:1.25;}
+.cptime{font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);}
+.cptile.active .cptime, .cptile.locked .cptime{color:inherit;opacity:0.75;}
+
+/* bottom action */
+.actionbar{border-top:0.5px solid var(--border);padding:14px 16px;background:var(--surface);flex:0 0 auto;}
+.btn{width:100%;padding:13px;border-radius:12px;font-size:14px;font-weight:500;text-align:center;display:block;}
+.btn-primary{background:var(--primary);color:var(--on-primary);}
+.btn-primary:hover{background:var(--primary-hover);}
+.btn-primary:disabled{background:var(--surface-2);color:var(--text-muted);cursor:not-allowed;}
+.btn-outline{background:transparent;border:1px solid var(--border-strong);color:var(--text-primary);text-align:center;}
+.btn-outline:hover{border-color:var(--danger);color:var(--danger);}
+.hint{font-size:12px;color:var(--text-muted);text-align:center;margin-top:8px;}
+.banner{border-radius:12px;padding:12px 14px;font-size:13px;display:flex;align-items:center;gap:10px;}
+.banner-gold{background:var(--gold-bg);color:var(--gold-text);}
+.banner-success{background:var(--success-bg);color:var(--success);}
+
+/* photo detail */
+.photoframe{width:100%;aspect-ratio:4/3;border-radius:16px;background:var(--surface-2);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
+.photoframe img{width:100%;height:100%;object-fit:cover;}
+.photoempty{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text-muted);}
+.timerow{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px;}
+.timerow .k{font-size:13px;color:var(--text-secondary);}
+.errtext{font-size:12px;color:var(--danger);}
+.btnrow{display:flex;gap:10px;}
+.btnrow .btn{flex:1;}
+
+/* approval */
+.kv{display:flex;justify-content:space-between;padding:8px 0;font-size:13px;border-bottom:0.5px solid var(--border);}
+.kv:last-child{border-bottom:none;}
+.kv .k{color:var(--text-secondary);}
+.kv .v{font-weight:500;font-family:var(--font-mono);}
+.minigrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.minithumb{aspect-ratio:1/1;border-radius:8px;background:var(--surface);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--success);position:relative;overflow:hidden;}
+.minithumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+</style>
+
+<h2 class="sr-only">당류 제조 라인의 소비기한 골든타임 생산 기록과 결재를 진행하는 모바일 앱 프로토타입입니다.</h2>
+
+<div class="page">
+  <div class="phone">
+    <header class="appbar" id="appbar"></header>
+    <main class="content" id="screen-root"></main>
+    <div class="modal-overlay" id="crop-overlay" hidden></div>
+    <div class="modal-overlay" id="time-overlay" hidden></div>
+    <div class="modal-overlay" id="sign-overlay" hidden></div>
+    <div class="modal-overlay" id="view-overlay" hidden></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script>
+var STORAGE_KEY = 'goldenTimeLog_v13';
+var CP_KEYS = ['start','lunchBefore','lunchAfter','breakBefore','breakAfter','dinnerBefore','dinnerAfter','end'];
+var CP_LABELS = {
+  start:'생산 시작', lunchBefore:'점심식사 전', lunchAfter:'점심식사 후',
+  breakBefore:'쉬는시간 전', breakAfter:'쉬는시간 후',
+  dinnerBefore:'저녁식사 전', dinnerAfter:'저녁식사 후', end:'생산종료'
+};
+var SEED_OFFSETS = {start:0, lunchBefore:2.5, lunchAfter:3.5, breakBefore:5, breakAfter:5.2, dinnerBefore:6.5, dinnerAfter:7, end:8};
+var LINE_WEIGHTS = {
+  1: ['700g','1.2kg'],
+  2: ['500g','700g','1.2kg','2.45kg'],
+  3: ['5kg','9kg','10kg'],
+  4: ['5kg','10kg','16kg','20kg']
+};
+var CAT10_PRODUCTS = ['물엿','올리고당'];
+var CAT2_PRODUCTS = ['황물엿','노브랜드올리고당','물엿(수출)'];
+var LINE_PRODUCTS = {
+  1: {
+    '700g': ['올리고당','요리올리고당','쌀올리고당','사과올리고당'],
+    '1.2kg': ['올리고당','요리올리고당','쌀올리고당','사과올리고당']
+  },
+  2: {
+    '500g': ['알룰로스 오리지널','알룰로스 시럽용'],
+    '700g': ['물엿','조청쌀엿','요리당'],
+    '1.2kg': ['물엿','조청쌀엿','요리당','노브랜드올리고당'],
+    '2.45kg': ['물엿','물엿(수출)','조청쌀엿','요리당','요리올리고당','올리고당']
+  },
+  3: {
+    '5kg': ['물엿'],
+    '9kg': ['물엿'],
+    '10kg': ['물엿']
+  },
+  4: {
+    '5kg': ['황물엿','조청쌀엿','국산조청쌀엿','쉐프원올리고당','우리아이튼튼올리고당'],
+    '10kg': ['황물엿'],
+    '16kg': ['황물엿'],
+    '20kg': ['조청쌀엿']
+  }
+};
+var SLOT_COUNT = 4;
+
+var ICON = {
+  back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+  chev:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+  camera:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  camerasm:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  lock:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  check:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+  badge:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 2.2 3.1-.5 1 3 2.8 1.5-.9 3 .9 3-2.8 1.5-1 3-3.1-.5L12 22l-2.4-2.2-3.1.5-1-3-2.8-1.5.9-3-.9-3 2.8-1.5 1-3 3.1.5z"/><path d="M9 12l2 2 4-4"/></svg>',
+  clock:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+  chevdown:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
+};
+
+var CI_LOGO_HTML = '<span class="ciword" aria-hidden="true">DAESANG</span>';
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function fmtTime(d){ d=new Date(d); return pad(d.getHours())+':'+pad(d.getMinutes()); }
+function fmtDate(d){ d=new Date(d); return d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate()); }
+function fmtDateTime(d){ return fmtDate(d)+' '+fmtTime(d); }
+function addHours(d,h){ return new Date(new Date(d).getTime()+h*3600*1000); }
+function addDays(d,n){ return new Date(new Date(d).getTime()+n*86400000); }
+function dateKey(d){ d=new Date(d); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function todayStr(){ return dateKey(new Date()); }
+function todayAt(h,m){ var d=new Date(); d.setHours(h,m,0,0); return d.toISOString(); }
+
+function emptyJob(weight, product){
+  var cps={};
+  CP_KEYS.forEach(function(k){ cps[k]={photo:null, time:null}; });
+  return { weight:weight, product:product, startAt:null, endAt:null, checkpoints:cps, status:'in_progress', requestedAt:null, requesterSignature:null, approvedBy:null, approvedAt:null, approverSignature:null };
+}
+function emptyLine(){ return { slots:[null,null,null,null] }; }
+function emptyDay(){
+  var lines = {};
+  [1,2,3,4].forEach(function(id){ lines[id] = emptyLine(); });
+  return { lines:lines };
+}
+
+function seedState(){
+  var byDate = {};
+  var today = todayStr();
+  byDate[today] = emptyDay();
+
+  var j1 = emptyJob('700g','올리고당');
+  j1.startAt = todayAt(6,0);
+  j1.checkpoints.start = {photo:'seed', time:j1.startAt};
+  j1.checkpoints.lunchBefore = {photo:'seed', time:addHours(j1.startAt,2.5).toISOString()};
+  j1.checkpoints.lunchAfter = {photo:'seed', time:addDays(addHours(j1.startAt,3.5),-1).toISOString()};
+  byDate[today].lines[1].slots[0] = j1;
+
+  var j1b = emptyJob('1.2kg','쌀올리고당');
+  j1b.startAt = todayAt(7,20);
+  j1b.checkpoints.start = {photo:'seed', time:j1b.startAt};
+  byDate[today].lines[1].slots[1] = j1b;
+
+  var j3 = emptyJob('9kg','물엿');
+  j3.startAt = todayAt(5,30);
+  j3.endAt = todayAt(13,40);
+  CP_KEYS.forEach(function(k){
+    var t = k==='start'?j3.startAt : k==='end'?j3.endAt : addHours(j3.startAt, SEED_OFFSETS[k]).toISOString();
+    j3.checkpoints[k]={photo:'seed', time:t};
+  });
+  j3.status='pending_approval';
+  j3.requestedAt = addHours(j3.endAt,0.1).toISOString();
+  byDate[today].lines[3].slots[0] = j3;
+
+  var yStr = dateKey(addDays(new Date(),-1));
+  byDate[yStr] = emptyDay();
+  var j4 = emptyJob('10kg','황물엿');
+  j4.startAt = yStr+'T06:10:00';
+  j4.endAt = yStr+'T14:05:00';
+  CP_KEYS.forEach(function(k){
+    var t = k==='start'?j4.startAt : k==='end'?j4.endAt : addHours(j4.startAt, SEED_OFFSETS[k]).toISOString();
+    j4.checkpoints[k]={photo:'seed', time:t};
+  });
+  j4.status='approved';
+  j4.approvedBy='ADMIN · QA팀';
+  j4.approvedAt = yStr+'T14:40:00';
+  byDate[yStr].lines[4].slots[0] = j4;
+
+  return { byDate:byDate };
+}
+
+var state = null;
+var currentDateStr = todayStr();
+function loadState(){
+  try{
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return seedState();
+}
+function saveState(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+}
+function ensureDay(dateStr){
+  if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
+  return state.byDate[dateStr];
+}
+function getJob(lineId, slot){ return ensureDay(currentDateStr).lines[lineId].slots[slot]; }
+function setJob(lineId, slot, job){ ensureDay(currentDateStr).lines[lineId].slots[slot] = job; }
+function onDateChange(v){
+  if(!v) return;
+  if(v > todayStr()) v = todayStr();
+  currentDateStr = v;
+  nav = [{screen:'home'}];
+  render();
+}
+
+var nav = [{screen:'role'}];
+var tempPick = { lineId:null, slot:null, weight:null };
+
+function push(entry){ nav.push(entry); render(); }
+function goHome(){ nav = [{screen:'role'}]; render(); }
+function goBack(){ if(nav.length>1) nav.pop(); render(); }
+
+function openSlot(lineId, slot){
+  var job = getJob(lineId, slot);
+  if(!job){ push({screen:'weight', lineId:lineId, slot:slot}); }
+  else { push({screen:'tracking', lineId:lineId, slot:slot}); }
+}
+function changeItem(lineId, slot){ push({screen:'weight', lineId:lineId, slot:slot}); }
+function chooseWeight(lineId, slot, w){ tempPick={lineId:lineId, slot:slot, weight:w}; push({screen:'product', lineId:lineId, slot:slot}); }
+function chooseProduct(lineId, slot, p){
+  setJob(lineId, slot, emptyJob(tempPick.weight, p));
+  saveState();
+  nav = nav.filter(function(n){ return n.screen!=='weight' && n.screen!=='product'; });
+  push({screen:'tracking', lineId:lineId, slot:slot});
+}
+function openCheckpoint(lineId, slot, key){
+  var job = getJob(lineId, slot);
+  if(key!=='start' && !job.startAt) return;
+  push({screen:'photo', lineId:lineId, slot:slot, key:key});
+}
+function openApproval(lineId, slot){ push({screen:'approval', lineId:lineId, slot:slot}); }
+
+function requestApproval(lineId, slot){
+  var job = getJob(lineId, slot);
+  if(!approvalReady(job)) return;
+  job.status='pending_approval';
+  job.requestedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+var signPendingLine = null, signPendingSlot = null;
+var signPendingMode = 'request';
+function openSignaturePad(lineId, slot, mode){
+  mode = mode || 'request';
+  var job = getJob(lineId, slot);
+  if(mode==='request' && !approvalReady(job)) return;
+  if(mode==='approve' && job.status!=='pending_approval') return;
+  signPendingLine = lineId; signPendingSlot = slot; signPendingMode = mode;
+  var title = mode==='approve' ? '결재 승인 서명' : '결재 요청 서명';
+  var saveLabel = mode==='approve' ? '저장하고 승인' : '저장하고 요청';
+  var html =
+    '<div class="sheet">'+
+      '<h3>'+title+'</h3>'+
+      '<div class="signpad-wrap"><canvas id="sign-canvas"></canvas></div>'+
+      '<div class="hint" style="margin:0;">서명란에 직접 서명해 주세요</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="clearSignature()">지우기</button>'+
+        '<button class="btn btn-primary" id="sign-save-btn" disabled onclick="saveSignature()">'+saveLabel+'</button>'+
+      '</div>'+
+      '<button class="btn btn-outline" onclick="closeSignaturePad()">취소</button>'+
+    '</div>';
+  document.getElementById('sign-overlay').innerHTML = html;
+  document.getElementById('sign-overlay').hidden = false;
+  requestAnimationFrame(setupSignatureCanvas);
+}
+function closeSignaturePad(){
+  document.getElementById('sign-overlay').hidden = true;
+  signPendingLine = null; signPendingSlot = null;
+}
+function clearSignature(){
+  var canvas = document.getElementById('sign-canvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('sign-save-btn').disabled = true;
+}
+function setupSignatureCanvas(){
+  var canvas = document.getElementById('sign-canvas');
+  var rect = canvas.parentElement.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width*dpr;
+  canvas.height = rect.height*dpr;
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-primary').trim() || '#15211D';
+  var drawing = false;
+  function pos(e){ var r=canvas.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
+  canvas.addEventListener('pointerdown', function(e){
+    drawing = true;
+    var p = pos(e);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y);
+    canvas.setPointerCapture(e.pointerId);
+    document.getElementById('sign-save-btn').disabled = false;
+  });
+  canvas.addEventListener('pointermove', function(e){
+    if(!drawing) return;
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y); ctx.stroke();
+  });
+  function stopDrawing(){ drawing = false; }
+  canvas.addEventListener('pointerup', stopDrawing);
+  canvas.addEventListener('pointercancel', stopDrawing);
+}
+function saveSignature(){
+  var canvas = document.getElementById('sign-canvas');
+  var job = getJob(signPendingLine, signPendingSlot);
+  var ln = signPendingLine, sl = signPendingSlot, mode = signPendingMode;
+  document.getElementById('sign-overlay').hidden = true;
+  signPendingLine = null; signPendingSlot = null;
+  if(mode==='approve'){
+    job.approverSignature = canvas.toDataURL('image/png');
+    approveJob(ln, sl);
+  } else {
+    job.requesterSignature = canvas.toDataURL('image/png');
+    requestApproval(ln, sl);
+  }
+}
+function approveJob(lineId, slot){
+  var job = getJob(lineId, slot);
+  job.status='approved';
+  job.approvedBy='ADMIN · QA팀';
+  job.approvedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function approvalReady(job){
+  return filledCount(job) >= 1;
+}
+function filledCount(job){
+  if(!job) return 0;
+  return CP_KEYS.filter(function(k){ return job.checkpoints[k].photo; }).length;
+}
+function productCategory(product){
+  if(CAT10_PRODUCTS.indexOf(product)>=0) return '10';
+  if(CAT2_PRODUCTS.indexOf(product)>=0) return '2';
+  return '1';
+}
+function realDaysInMonth(month, year){ return new Date(year, month, 0).getDate(); }
+function displayCap(month, year){ return month===2 ? 28 : realDaysInMonth(month, year); }
+function letterFor(n){ return String.fromCharCode(64+n); }
+
+function computeConsumeInfo(dateStr, category){
+  var parts = dateStr.split('-');
+  var y = parseInt(parts[0],10), m = parseInt(parts[1],10), d = parseInt(parts[2],10);
+  var yt = y+2;
+  if(category==='10'){
+    var raw = d-10;
+    var mt, dtRaw, fromBorrow;
+    if(raw>=1){ mt=m; dtRaw=raw; fromBorrow=false; }
+    else { mt=m-1; if(mt===0){ mt=12; yt-=1; } dtRaw=raw+30; fromBorrow=true; }
+    var cap = displayCap(mt, yt);
+    var dt, suffix='';
+    if(dtRaw>cap){ dt=cap; suffix=letterFor(dtRaw-cap); }
+    else { dt=dtRaw; if(fromBorrow && dtRaw===21 && cap===31) suffix='A'; }
+    return { year:yt, month:mt, day:dt, suffix:suffix };
+  }
+  var n = category==='2' ? 2 : 1;
+  var real = new Date(yt, m-1, d);
+  real.setDate(real.getDate()-n);
+  var mt2=real.getMonth()+1, dt2=real.getDate(), yt2=real.getFullYear(), suffix2='';
+  if(mt2===2 && dt2===29){ dt2=28; suffix2='A'; }
+  return { year:yt2, month:mt2, day:dt2, suffix:suffix2 };
+}
+function computeConsumeDisplay(dateStr, product){
+  var info = computeConsumeInfo(dateStr, productCategory(product));
+  return info.year+'.'+pad(info.month)+'.'+pad(info.day)+info.suffix;
+}
+function slotDotColor(job){
+  if(job.status==='approved') return 'var(--success)';
+  if(job.status==='pending_approval') return 'var(--gold)';
+  return 'var(--primary)';
+}
+
+var pendingFileData = null;
+function triggerFilePick(){ document.getElementById('cp-file-input').click(); }
+
+var CROP_MIN = 40;
+var CROP_HANDLE_IDS = ['tl','t','tr','l','r','bl','b','br'];
+var CROP_HANDLE_AXES = {
+  tl:{ax:-1,ay:-1}, t:{ax:0,ay:-1}, tr:{ax:1,ay:-1},
+  l:{ax:-1,ay:0}, r:{ax:1,ay:0},
+  bl:{ax:-1,ay:1}, b:{ax:0,ay:1}, br:{ax:1,ay:1}
+};
+var cropImg = null;
+var cropStageEl = null;
+var cropBox = { x:0, y:0, w:0, h:0 };
+
+function renderCropBox(){
+  var box = document.getElementById('cropbox');
+  box.style.left = cropBox.x+'px';
+  box.style.top = cropBox.y+'px';
+  box.style.width = cropBox.w+'px';
+  box.style.height = cropBox.h+'px';
+}
+function initCropBox(){
+  cropStageEl = document.getElementById('cropstage');
+  var stageW = cropStageEl.clientWidth, stageH = cropStageEl.clientHeight;
+  var w = stageW*0.86, h = stageH*0.86;
+  cropBox = { x:(stageW-w)/2, y:(stageH-h)/2, w:w, h:h };
+  renderCropBox();
+}
+function attachCropBoxDrag(){
+  var box = document.getElementById('cropbox');
+  var mode=null, startX=0, startY=0, start={}, stageW=0, stageH=0;
+
+  box.addEventListener('pointerdown', function(e){
+    stageW = cropStageEl.clientWidth; stageH = cropStageEl.clientHeight;
+    var h = e.target.dataset ? e.target.dataset.h : null;
+    mode = h || 'move';
+    startX=e.clientX; startY=e.clientY;
+    start = { x:cropBox.x, y:cropBox.y, w:cropBox.w, h:cropBox.h };
+    box.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  });
+  box.addEventListener('pointermove', function(e){
+    if(!mode) return;
+    if(mode==='move'){
+      var nx = start.x+(e.clientX-startX), ny = start.y+(e.clientY-startY);
+      cropBox.x = Math.max(0, Math.min(stageW-cropBox.w, nx));
+      cropBox.y = Math.max(0, Math.min(stageH-cropBox.h, ny));
+    } else {
+      var axes = CROP_HANDLE_AXES[mode];
+      var rect = cropStageEl.getBoundingClientRect();
+      var px = Math.max(0, Math.min(stageW, e.clientX-rect.left));
+      var py = Math.max(0, Math.min(stageH, e.clientY-rect.top));
+      var x=start.x, y=start.y, w=start.w, h=start.h;
+      if(axes.ax===-1){ var nx2=Math.min(px, start.x+start.w-CROP_MIN); x=nx2; w=(start.x+start.w)-nx2; }
+      else if(axes.ax===1){ var nr=Math.max(px, start.x+CROP_MIN); w=nr-start.x; }
+      if(axes.ay===-1){ var ny2=Math.min(py, start.y+start.h-CROP_MIN); y=ny2; h=(start.y+start.h)-ny2; }
+      else if(axes.ay===1){ var nb=Math.max(py, start.y+CROP_MIN); h=nb-start.y; }
+      cropBox = { x:x, y:y, w:w, h:h };
+    }
+    renderCropBox();
+  });
+  box.addEventListener('pointerup', function(){ mode=null; });
+  box.addEventListener('pointercancel', function(){ mode=null; });
+}
+function openCropSheet(){
+  var handlesHTML = CROP_HANDLE_IDS.map(function(h){ return '<span class="crophandle" data-h="'+h+'"></span>'; }).join('');
+  var html =
+    '<div class="sheet">'+
+      '<h3>사진 자르기</h3>'+
+      '<div class="cropstage" id="cropstage">'+
+        '<img id="cropimg" src="'+cropImg.src+'" alt="">'+
+        '<div class="cropbox" id="cropbox">'+handlesHTML+'</div>'+
+      '</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="closeCropSheet()">취소</button>'+
+        '<button class="btn btn-primary" onclick="confirmCrop()">자르기 완료</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('crop-overlay').innerHTML = html;
+  document.getElementById('crop-overlay').hidden = false;
+  requestAnimationFrame(function(){
+    initCropBox();
+    attachCropBoxDrag();
+  });
+}
+function closeCropSheet(){
+  document.getElementById('crop-overlay').hidden = true;
+  cropImg = null;
+}
+function confirmCrop(){
+  var scale = cropImg.naturalWidth / cropStageEl.clientWidth;
+  var sx = cropBox.x*scale, sy = cropBox.y*scale, sw = cropBox.w*scale, sh = cropBox.h*scale;
+  var maxDim = 1000;
+  var outW = sw, outH = sh;
+  if(sw>=sh){ outW = Math.min(maxDim, sw); outH = outW*(sh/sw); }
+  else { outH = Math.min(maxDim, sh); outW = outH*(sw/sh); }
+  var canvas = document.createElement('canvas');
+  canvas.width = Math.round(outW); canvas.height = Math.round(outH);
+  canvas.getContext('2d').drawImage(cropImg, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  pendingFileData = canvas.toDataURL('image/jpeg', 0.82);
+  document.getElementById('crop-overlay').hidden = true;
+  cropImg = null;
+  renderPhotoScreen(currentLineId(), currentSlot(), currentKey());
+}
+
+function handleFile(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      cropImg = img;
+      openCropSheet();
+    };
+    img.src = e.target.result;
+  };
+  input.value = '';
+  reader.readAsDataURL(file);
+}
+
+function fmtAmPmLabel(h24, m){
+  var ap = h24<12 ? '오전' : '오후';
+  var h12 = h24%12; if(h12===0) h12=12;
+  return ap+' '+pad(h12)+':'+pad(m);
+}
+
+var TIME_STATE = { ap:0, hIdx:0, minIdx:0 };
+var WHEEL_ITEM_H = 36;
+
+function setupWheel(id, count, initialIndex, onChange){
+  var el = document.getElementById(id);
+  el.scrollTop = initialIndex*WHEEL_ITEM_H;
+  var timer = null;
+  el.addEventListener('scroll', function(){
+    if(timer) clearTimeout(timer);
+    timer = setTimeout(function(){
+      var idx = Math.max(0, Math.min(count-1, Math.round(el.scrollTop/WHEEL_ITEM_H)));
+      el.scrollTop = idx*WHEEL_ITEM_H;
+      var items = el.querySelectorAll('.wheelitem');
+      items.forEach(function(it,i){ it.classList.toggle('sel', i===idx); });
+      onChange(idx);
+    }, 120);
+  }, {passive:true});
+}
+function wheelColHTML(id, items, selIdx){
+  var html = '<div class="wheelcol" id="'+id+'"><div class="wheelpad"></div>';
+  items.forEach(function(it,i){ html += '<div class="wheelitem'+(i===selIdx?' sel':'')+'">'+it+'</div>'; });
+  html += '<div class="wheelpad"></div></div>';
+  return html;
+}
+function openTimePicker(){
+  var hidden = document.getElementById('cp-time-input');
+  var parts = (hidden.value||'12:00').split(':');
+  var h24 = parseInt(parts[0],10), m = parseInt(parts[1],10);
+  var h12 = h24%12; if(h12===0) h12=12;
+  TIME_STATE = { ap: h24<12?0:1, hIdx: h12-1, minIdx: m };
+
+  var apItems = ['오전','오후'];
+  var hourItems = []; for(var i=1;i<=12;i++) hourItems.push(pad(i));
+  var minItems = []; for(var i=0;i<60;i++) minItems.push(pad(i));
+
+  var html =
+    '<div class="sheet">'+
+      '<h3>시각 선택</h3>'+
+      '<div class="wheelrow">'+
+        wheelColHTML('wheel-ap', apItems, TIME_STATE.ap)+
+        wheelColHTML('wheel-hour', hourItems, TIME_STATE.hIdx)+
+        wheelColHTML('wheel-min', minItems, TIME_STATE.minIdx)+
+      '</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="closeTimePicker()">취소</button>'+
+        '<button class="btn btn-primary" onclick="confirmTimePicker()">확인</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('time-overlay').innerHTML = html;
+  document.getElementById('time-overlay').hidden = false;
+  setupWheel('wheel-ap', apItems.length, TIME_STATE.ap, function(i){ TIME_STATE.ap=i; });
+  setupWheel('wheel-hour', hourItems.length, TIME_STATE.hIdx, function(i){ TIME_STATE.hIdx=i; });
+  setupWheel('wheel-min', minItems.length, TIME_STATE.minIdx, function(i){ TIME_STATE.minIdx=i; });
+}
+function closeTimePicker(){ document.getElementById('time-overlay').hidden = true; }
+function confirmTimePicker(){
+  var h12 = TIME_STATE.hIdx+1;
+  var h24;
+  if(TIME_STATE.ap===0){ h24 = (h12===12) ? 0 : h12; }
+  else { h24 = (h12===12) ? 12 : h12+12; }
+  var m = TIME_STATE.minIdx;
+  document.getElementById('cp-time-input').value = pad(h24)+':'+pad(m);
+  document.getElementById('cp-time-display').textContent = fmtAmPmLabel(h24, m);
+  closeTimePicker();
+}
+function currentLineId(){ return nav[nav.length-1].lineId; }
+function currentSlot(){ return nav[nav.length-1].slot; }
+function currentKey(){ return nav[nav.length-1].key; }
+
+function savePhoto(){
+  var lineId = currentLineId(), slot = currentSlot(), key = currentKey();
+  var job = getJob(lineId, slot);
+  var cp = job.checkpoints[key];
+  var photo = pendingFileData || cp.photo;
+  if(!photo){
+    document.getElementById('photo-err').textContent = '사진을 먼저 선택해 주세요.';
+    return;
+  }
+  cp.photo = photo;
+  var timeInput = document.getElementById('cp-time-input');
+  if(timeInput){
+    var val = timeInput.value;
+    if(!val){ document.getElementById('photo-err').textContent = '시각을 입력해 주세요.'; return; }
+    var base = cp.time ? new Date(cp.time) : new Date();
+    var parts = val.split(':');
+    base.setHours(parseInt(parts[0],10), parseInt(parts[1],10), 0, 0);
+    var iso = base.toISOString();
+    cp.time = iso;
+    if(key==='start') job.startAt = iso;
+    else if(key==='end') job.endAt = iso;
+  }
+  pendingFileData = null;
+  saveState();
+  goBack();
+}
+function deletePhoto(){
+  var lineId = currentLineId(), slot = currentSlot(), key = currentKey();
+  getJob(lineId, slot).checkpoints[key].photo = null;
+  pendingFileData = null;
+  saveState();
+  renderPhotoScreen(lineId, slot, key);
+}
+
+function renderAppBar(title, opts){
+  opts = opts || {};
+  var bar = document.getElementById('appbar');
+  bar.innerHTML =
+    '<button class="backbtn'+(opts.showBack?'':' hidden')+'" onclick="goBack()" aria-label="뒤로가기">'+ICON.back+'</button>'+
+    '<h1>'+title+'</h1>'+
+    (opts.rightLabel ? '<button class="rightaction" onclick="'+opts.rightAction+'">'+opts.rightLabel+'</button>' : '')+
+    (opts.showDate ? '<input type="date" class="datepick" value="'+currentDateStr+'" max="'+todayStr()+'" onchange="onDateChange(this.value)" aria-label="날짜 선택">' : '')+
+    CI_LOGO_HTML;
+}
+
+function ocrMatchStatus(cp){
+  if(!cp.photo || !cp.time) return null;
+  return (dateKey(cp.time)===currentDateStr) ? 'match' : 'mismatch';
+}
+
+function cpTileHTML(lineId, slot, job, key){
+  var cp = job.checkpoints[key];
+  var label = CP_LABELS[key];
+  var locked = (key!=='start' && !job.startAt);
+  var timeText;
+  if(key==='start') timeText = job.startAt ? fmtTime(job.startAt) : '시각 선택';
+  else if(key==='end') timeText = job.endAt ? fmtTime(job.endAt) : (job.startAt ? '시각 선택' : '시작 후 활성화');
+  else timeText = cp.time ? fmtTime(cp.time) : (job.startAt ? '시각 선택' : '시작 후 활성화');
+
+  var tile;
+  if(cp.photo){
+    var img = cp.photo.indexOf('data:')===0 ? '<img src="'+cp.photo+'" alt="">' : '';
+    var placeholderBg = img ? '' : 'background:linear-gradient(135deg, color-mix(in srgb, var(--primary) 22%, var(--surface-2)), var(--surface-2));';
+    var tapAction = adminMode ? 'openPhotoView('+lineId+','+slot+',\''+key+'\')' : 'openCheckpoint('+lineId+','+slot+',\''+key+'\')';
+    tile = '<button class="cptile filled" style="'+placeholderBg+'" onclick="'+tapAction+'">'+
+      img+'<div class="cpoverlay"></div>'+
+      '<span class="checkbadge">'+ICON.check+'</span>'+
+      '<span class="cplabel">'+label+'</span><span class="cptime">'+timeText+'</span></button>';
+  } else if(locked || adminMode){
+    tile = '<div class="cptile locked">'+ICON.lock+'<span class="cplabel">'+label+'</span><span class="cptime">'+timeText+'</span></div>';
+  } else {
+    tile = '<button class="cptile active" onclick="openCheckpoint('+lineId+','+slot+',\''+key+'\')">'+ICON.camerasm+'<span class="cplabel">'+label+'</span><span class="cptime">'+timeText+'</span></button>';
+  }
+
+  var status = ocrMatchStatus(cp);
+  var badge = status ? '<div class="cpmatch '+status+'">'+(status==='match'?'일치':'불일치')+'</div>' : '';
+  return '<div class="cpwrap">'+tile+badge+'</div>';
+}
+
+function openPhotoView(lineId, slot, key){
+  var cp = getJob(lineId, slot).checkpoints[key];
+  if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
+  document.getElementById('view-overlay').innerHTML =
+    '<div class="viewsheet">'+
+      '<img src="'+cp.photo+'" alt="'+CP_LABELS[key]+' 사진">'+
+      '<button class="btn btn-outline" onclick="closePhotoView()">닫기</button>'+
+    '</div>';
+  document.getElementById('view-overlay').hidden = false;
+}
+function closePhotoView(){ document.getElementById('view-overlay').hidden = true; }
+
+var ADMIN_PASSWORD = '0808';
+var adminMode = false;
+var adminCalYear = new Date().getFullYear();
+var adminCalMonth = new Date().getMonth()+1;
+
+function renderRole(){
+  renderAppBar('', {showBack:false});
+  var html =
+    '<div class="rolescreen">'+
+      '<div class="rolebrand"><span class="ciword">DAESANG</span><div class="roletitle">소비기한 골든타임 일지</div></div>'+
+      '<div class="rolebtns">'+
+        '<button class="rolebtn" onclick="adminMode=false; push({screen:\'home\'})">USER<span class="sub">현장 담당자용 · 로그인 없이 시작</span></button>'+
+        '<button class="rolebtn" onclick="push({screen:\'adminLogin\'})">ADMIN<span class="sub">관리자용 · 비밀번호 필요</span></button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+function renderAdminLogin(){
+  renderAppBar('관리자 로그인', {showBack:true});
+  var html =
+    '<div class="card" style="display:flex;flex-direction:column;gap:12px;">'+
+      '<div>'+
+        '<div class="eyebrow" style="margin-bottom:8px;">비밀번호</div>'+
+        '<input type="password" id="admin-pw" class="textinput" placeholder="비밀번호 입력" onkeydown="if(event.key===\'Enter\') submitAdminPw()">'+
+      '</div>'+
+      '<div class="errtext" id="admin-pw-err"></div>'+
+      '<button class="btn btn-primary" onclick="submitAdminPw()">확인</button>'+
+    '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+function submitAdminPw(){
+  var val = document.getElementById('admin-pw').value;
+  if(val===ADMIN_PASSWORD){ push({screen:'adminCalendar'}); }
+  else{ document.getElementById('admin-pw-err').textContent = '비밀번호가 올바르지 않습니다.'; }
+}
+
+function dateHasData(dateStr){
+  var day = state.byDate[dateStr];
+  if(!day) return false;
+  return [1,2,3,4].some(function(id){ return day.lines[id].slots.some(function(s){ return !!s; }); });
+}
+function changeCalMonth(delta){
+  var m = adminCalMonth+delta;
+  if(m<1){ m=12; adminCalYear--; } else if(m>12){ m=1; adminCalYear++; }
+  adminCalMonth = m;
+  render();
+}
+function openAdminDate(dateStr){
+  if(!dateHasData(dateStr)) return;
+  adminMode = true;
+  currentDateStr = dateStr;
+  push({screen:'home'});
+}
+function renderAdminCalendar(){
+  renderAppBar('작성일 달력', {showBack:true});
+  var y=adminCalYear, m=adminCalMonth;
+  var firstWeekday = new Date(y, m-1, 1).getDay();
+  var daysInMonth = new Date(y, m, 0).getDate();
+  var wd = ['일','월','화','수','목','금','토'];
+  var html =
+    '<div class="calhead">'+
+      '<button onclick="changeCalMonth(-1)" aria-label="이전 달">'+ICON.back+'</button>'+
+      '<span class="caltitle">'+y+'.'+pad(m)+'</span>'+
+      '<button onclick="changeCalMonth(1)" aria-label="다음 달" style="transform:rotate(180deg);">'+ICON.back+'</button>'+
+    '</div>'+
+    '<div class="calgrid">'+
+      wd.map(function(w){ return '<div class="calwd">'+w+'</div>'; }).join('');
+  for(var i=0;i<firstWeekday;i++) html += '<div class="calday empty"></div>';
+  for(var d=1; d<=daysInMonth; d++){
+    var dateStr = y+'-'+pad(m)+'-'+pad(d);
+    var has = dateHasData(dateStr);
+    html += '<'+(has?'button':'div')+' class="calday'+(has?' has-data':'')+'"'+(has?' onclick="openAdminDate(\''+dateStr+'\')"':'')+'>'+d+'</'+(has?'button':'div')+'>';
+  }
+  html += '</div><div class="hint">기록이 있는 날짜만 눌러서 확인할 수 있어요</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+
+async function exportDayExcel(dateStr){
+  if(typeof ExcelJS==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'); return; }
+  var wb = new ExcelJS.Workbook();
+  var day = state.byDate[dateStr];
+  [1,2,3,4].forEach(function(lineId){
+    var ws = wb.addWorksheet(lineId+'호기');
+    ws.getCell('B2').value = '작성일';
+    ws.getCell('B2').font = {bold:true};
+    ws.getCell('C2').value = dateStr.replace(/-/g,'.');
+    var slots = day ? day.lines[lineId].slots : [null,null,null,null];
+    slots.forEach(function(job, i){
+      var base = 4 + i*4;
+      var labelCell = ws.getCell('B'+base);
+      labelCell.value = job ? (job.product+' '+job.weight) : ('품목'+(i+1));
+      labelCell.font = {bold:true};
+      var headerRow = base+1;
+      CP_KEYS.forEach(function(key, ci){
+        var col = String.fromCharCode(66+ci);
+        var cell = ws.getCell(col+headerRow);
+        cell.value = CP_LABELS[key];
+        cell.font = {bold:true};
+        cell.alignment = {horizontal:'center'};
+        cell.border = {top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
+      });
+      var photoRow = base+2;
+      ws.getRow(photoRow).height = 110;
+      if(job){
+        CP_KEYS.forEach(function(key, ci){
+          var cp = job.checkpoints[key];
+          if(cp.photo && cp.photo.indexOf('data:')===0){
+            var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
+            if(m){
+              var ext = m[1]==='jpg' ? 'jpeg' : m[1];
+              var imgId = wb.addImage({ base64:m[2], extension:ext });
+              ws.addImage(imgId, { tl:{col:1+ci, row:photoRow-1}, ext:{width:95, height:105} });
+            }
+          }
+        });
+      }
+    });
+    ws.getColumn(1).width = 3;
+    for(var c=2;c<=9;c++) ws.getColumn(c).width = 14;
+  });
+
+  var buffer = await wb.xlsx.writeBuffer();
+  var blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  var downloads = await claude.use('downloads');
+  if(!downloads){ alert('이 화면에서는 파일 저장 기능을 사용할 수 없어요.'); return; }
+  try{
+    await downloads.save({ filename:dateStr+'_golden_time.xlsx', data:blob });
+  }catch(e){
+    if(e && e.code==='declined') return;
+    alert('엑셀 저장에 실패했어요: '+(e && e.message ? e.message : e));
+  }
+}
+
+function renderHome(){
+  renderAppBar('소비기한 골든타임 일지', {showBack:true, showDate:!adminMode});
+  var html = '<div class="homegrid">';
+  [1,2,3,4].forEach(function(id){
+    var slots = ensureDay(currentDateStr).lines[id].slots;
+    html += '<div class="linetile">'+
+      '<div class="tilehead"><span class="tilenum">'+id+'</span><span class="tilelabel">호기</span></div>'+
+      '<div class="slotlist">'+
+        slots.map(function(job, i){
+          var label = job ? job.product : '품목선택 '+(i+1);
+          var dot = job ? '<span class="slotdot" style="background:'+slotDotColor(job)+'"></span>' : '';
+          if(!job && adminMode){
+            return '<div class="slotrow empty"><span class="slotname">'+label+'</span></div>';
+          }
+          return '<button class="slotrow'+(job?'':' empty')+'" onclick="openSlot('+id+','+i+')"><span class="slotname">'+label+'</span>'+dot+'</button>';
+        }).join('')+
+      '</div>'+
+    '</div>';
+  });
+  html += '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+
+  var old = document.getElementById('actionbar');
+  if(old) old.remove();
+  if(adminMode){
+    var actionbar = document.createElement('div');
+    actionbar.className='actionbar'; actionbar.id='actionbar';
+    actionbar.innerHTML = '<button class="btn btn-primary" onclick="exportDayExcel(\''+currentDateStr+'\')">'+currentDateStr.replace(/-/g,'.')+' 엑셀로 내보내기</button>';
+    document.querySelector('.phone').appendChild(actionbar);
+  }
+}
+
+function renderWeight(lineId, slot){
+  renderAppBar(lineId+'호기 · 중량 선택', {showBack:true});
+  var html = '<div class="eyebrow">품목선택 '+(slot+1)+' · 1/2</div><div class="gridpick">';
+  LINE_WEIGHTS[lineId].forEach(function(w){
+    html += '<button class="weighttile" onclick="chooseWeight('+lineId+','+slot+',\''+w+'\')">'+w+'</button>';
+  });
+  html += '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+
+function renderProduct(lineId, slot){
+  renderAppBar(tempPick.weight+' · 제품 선택', {showBack:true});
+  var html = '<div class="eyebrow">품목선택 '+(slot+1)+' · 2/2</div>';
+  LINE_PRODUCTS[lineId][tempPick.weight].forEach(function(p){
+    html += '<button class="productrow" onclick="chooseProduct('+lineId+','+slot+',\''+p+'\')"><span>'+p+'</span><span class="chev">'+ICON.chev+'</span></button>';
+  });
+  document.getElementById('screen-root').innerHTML = html;
+}
+
+function renderTracking(lineId, slot){
+  var job = getJob(lineId, slot);
+  var locked = job.status==='approved' || adminMode;
+  renderAppBar(lineId+'호기 · '+job.product, locked ? {showBack:true} : {showBack:true, rightLabel:'품목 변경', rightAction:'changeItem('+lineId+','+slot+')'});
+  var calcStr = computeConsumeDisplay(currentDateStr, job.product);
+  var html =
+    '<div class="hero"><div class="eyebrow">소비기한</div><div class="heronum">'+calcStr+'</div>'+
+      '<div class="herolegend">'+
+        '<div>소분 : 2년-10일</div>'+
+        '<div>수출, PB, 황물엿 : 2년-2일</div>'+
+        '<div>그 외 : 2년-1일</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="eyebrow">골든타임 체크포인트</div>'+
+    '<div class="cpgrid">'+CP_KEYS.map(function(k){ return cpTileHTML(lineId, slot, job, k); }).join('')+'</div>';
+  document.getElementById('screen-root').innerHTML = html;
+
+  var bar = document.getElementById('actionbar');
+  if(bar) bar.remove();
+  var actionHTML = '';
+  if(job.status==='approved'){
+    actionHTML = '<div class="banner banner-success">'+ICON.badge+'<span>결재 완료 · '+job.approvedBy+' · '+fmtDateTime(job.approvedAt)+'</span></div>'+
+      '<button class="btn btn-outline" style="margin-top:10px;" onclick="openApproval('+lineId+','+slot+')">결재 내역 보기</button>';
+  } else if(job.status==='pending_approval'){
+    actionHTML = '<div class="banner banner-gold">'+ICON.badge+'<span>결재 대기 중 · '+fmtDateTime(job.requestedAt)+' 요청</span></div>'+
+      '<button class="btn btn-outline" style="margin-top:10px;" onclick="openApproval('+lineId+','+slot+')">결재 화면 열기</button>';
+  } else if(adminMode){
+    actionHTML = '<div class="hint" style="margin:0;">아직 결재 요청 전인 항목이에요</div>';
+  } else {
+    var ready = approvalReady(job);
+    actionHTML = '<button class="btn btn-primary" '+(ready?'':'disabled')+' onclick="openSignaturePad('+lineId+','+slot+')">결재 요청</button>'+
+      (ready ? '' : '<div class="hint">사진을 1장 이상 업로드하면 결재 요청을 할 수 있어요</div>');
+  }
+  var actionbar = document.createElement('div');
+  actionbar.className = 'actionbar';
+  actionbar.id = 'actionbar';
+  actionbar.innerHTML = actionHTML;
+  document.querySelector('.phone').appendChild(actionbar);
+}
+
+function renderPhotoScreen(lineId, slot, key){
+  var job = getJob(lineId, slot);
+  var cp = job.checkpoints[key];
+  renderAppBar(CP_LABELS[key]+' 사진', {showBack:true});
+  var photo = pendingFileData || (cp.photo && cp.photo.indexOf('data:')===0 ? cp.photo : null);
+  var isSeedOnly = cp.photo==='seed' && !pendingFileData;
+
+  var frame = photo ?
+    '<div class="photoframe"><img src="'+photo+'" alt=""></div>' :
+    (isSeedOnly ?
+      '<div class="photoframe" style="background:linear-gradient(135deg, color-mix(in srgb, var(--primary) 20%, var(--surface-2)), var(--surface-2));"><div class="photoempty">'+ICON.camera+'<span>예시 촬영 이미지</span></div></div>' :
+      '<div class="photoframe"><div class="photoempty">'+ICON.camera+'<span>등록된 사진이 없습니다</span></div></div>');
+
+  var locked = job.status==='approved';
+  var t = cp.time ? new Date(cp.time) : new Date();
+  var timeRow = locked ?
+    '<div class="timerow"><span class="k">시각</span><span class="v" style="font-family:var(--font-mono);font-weight:700;">'+(cp.time?fmtTime(t):'-')+'</span></div>' :
+    '<div class="timerow"><span class="k">시각</span><button type="button" class="timepick" id="cp-time-display" onclick="openTimePicker()">'+ICON.clock+' '+fmtAmPmLabel(t.getHours(),t.getMinutes())+' '+ICON.chevdown+'</button>'+
+      '<input type="hidden" id="cp-time-input" value="'+pad(t.getHours())+':'+pad(t.getMinutes())+'"></div>';
+
+  var html =
+    frame +
+    (locked ? '<div class="hint" style="margin:0;">결재 완료된 배치예요 · 사진만 다시 등록할 수 있어요</div>' : '') +
+    '<input type="file" id="cp-file-input" accept="image/*" capture="environment" style="display:none" onchange="handleFile(this)">'+
+    '<button class="btn btn-outline" onclick="triggerFilePick()">'+(photo||isSeedOnly?'다시 촬영/선택':'사진 선택')+'</button>'+
+    timeRow +
+    '<div class="errtext" id="photo-err"></div>'+
+    '<div class="btnrow">'+
+      '<button class="btn btn-outline" onclick="deletePhoto()">삭제</button>'+
+      '<button class="btn btn-primary" onclick="savePhoto()">저장</button>'+
+    '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+
+function renderApproval(lineId, slot){
+  var job = getJob(lineId, slot);
+  renderAppBar(lineId+'호기 · 결재', {showBack:true});
+  var calcStr = computeConsumeDisplay(currentDateStr, job.product);
+  var html =
+    '<div class="hero"><div class="eyebrow">소비기한</div><div class="heronum">'+calcStr+'</div>'+
+      '<div class="heromuted">'+currentDateStr.replace(/-/g,'.')+' 선택 기준 자동계산</div></div>'+
+    '<div class="card"><div class="eyebrow" style="margin-bottom:6px;">생산 정보</div>'+
+      '<div class="kv"><span class="k">호기</span><span class="v">'+lineId+'호기 · 품목선택 '+(slot+1)+'</span></div>'+
+      '<div class="kv"><span class="k">품목</span><span class="v">'+job.product+' · '+job.weight+'</span></div>'+
+      '<div class="kv"><span class="k">생산 시작</span><span class="v">'+fmtDateTime(job.startAt)+'</span></div>'+
+      '<div class="kv"><span class="k">생산 종료</span><span class="v">'+fmtDateTime(job.endAt)+'</span></div>'+
+    '</div>'+
+    '<div class="eyebrow">체크포인트 사진</div>'+
+    '<div class="minigrid">'+CP_KEYS.map(function(k){
+      var cp = job.checkpoints[k];
+      var inner = cp.photo && cp.photo.indexOf('data:')===0 ? '<img src="'+cp.photo+'" alt="">' : ICON.check;
+      return '<div class="minithumb">'+inner+'</div>';
+    }).join('')+'</div>'+
+    (job.requesterSignature ?
+      '<div class="eyebrow">요청자 서명</div><img src="'+job.requesterSignature+'" alt="요청자 서명" style="width:100%;max-width:220px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:8px;">' :
+      '')+
+    (job.approverSignature ?
+      '<div class="eyebrow">승인자 서명</div><img src="'+job.approverSignature+'" alt="승인자 서명" style="width:100%;max-width:220px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:8px;">' :
+      '');
+  document.getElementById('screen-root').innerHTML = html;
+
+  var old = document.getElementById('actionbar');
+  if(old) old.remove();
+  var actionHTML;
+  if(job.status==='approved'){
+    actionHTML = '<div class="banner banner-success">'+ICON.badge+'<span>결재 완료 · '+job.approvedBy+' · '+fmtDateTime(job.approvedAt)+'</span></div>';
+  } else if(adminMode){
+    actionHTML = '<button class="btn btn-primary" onclick="openSignaturePad('+lineId+','+slot+',\'approve\')">결재 승인</button>'+
+      '<div class="hint">요청 시각 '+fmtDateTime(job.requestedAt)+'</div>';
+  } else {
+    actionHTML = '<div class="hint" style="margin:0;">관리자 승인을 기다리고 있어요 · 요청 시각 '+fmtDateTime(job.requestedAt)+'</div>';
+  }
+  var actionbar = document.createElement('div');
+  actionbar.className='actionbar'; actionbar.id='actionbar';
+  actionbar.innerHTML = actionHTML;
+  document.querySelector('.phone').appendChild(actionbar);
+}
+
+function render(){
+  var top = nav[nav.length-1];
+  var old = document.getElementById('actionbar');
+  if(old) old.remove();
+  document.getElementById('screen-root').classList.toggle('tight', top.screen==='home');
+  if(top.screen==='role') renderRole();
+  else if(top.screen==='adminLogin') renderAdminLogin();
+  else if(top.screen==='adminCalendar') renderAdminCalendar();
+  else if(top.screen==='home') renderHome();
+  else if(top.screen==='weight') renderWeight(top.lineId, top.slot);
+  else if(top.screen==='product') renderProduct(top.lineId, top.slot);
+  else if(top.screen==='tracking') renderTracking(top.lineId, top.slot);
+  else if(top.screen==='photo') renderPhotoScreen(top.lineId, top.slot, top.key);
+  else if(top.screen==='approval') renderApproval(top.lineId, top.slot);
+  document.getElementById('screen-root').scrollTop = 0;
+}
+
+state = loadState();
+render();
+</script>
