@@ -1,3 +1,5 @@
+# Web preview of the app at https://wndud0808.github.io/TEST3/
+# Requires Settings > Pages > Source = "GitHub Actions" (enabled).
 name: Deploy web preview to GitHub Pages
 
 on:
