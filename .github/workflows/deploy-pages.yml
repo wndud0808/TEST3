@@ -32,6 +32,9 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Stamp app version (current commit SHA)
+        run: echo "{\"version\":\"${{ github.sha }}\"}" > www/version.json
+
       - name: Upload www/ as the Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

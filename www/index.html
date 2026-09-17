@@ -234,6 +234,7 @@ input{font:inherit;color:inherit;}
     <div class="modal-overlay" id="time-overlay" hidden></div>
     <div class="modal-overlay" id="sign-overlay" hidden></div>
     <div class="modal-overlay" id="view-overlay" hidden></div>
+    <div class="modal-overlay" id="update-overlay" hidden></div>
   </div>
 </div>
 
@@ -1224,7 +1225,39 @@ function render(){
   document.getElementById('screen-root').scrollTop = 0;
 }
 
+var LATEST_URL = 'https://wndud0808.github.io/TEST3/';
+function checkForUpdate(){
+  fetch('./version.json', { cache:'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(local){
+      return fetch(LATEST_URL+'version.json?t='+Date.now(), { cache:'no-store' })
+        .then(function(r){ return r.json(); })
+        .then(function(remote){
+          if(remote && local && remote.version && local.version && remote.version!==local.version){
+            showUpdatePopup();
+          }
+        });
+    })
+    .catch(function(){ /* offline, blocked, or no version.json (e.g. local dev) - ignore silently */ });
+}
+function showUpdatePopup(){
+  document.getElementById('update-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>새 버전이 있어요</h3>'+
+      '<div class="hint" style="margin:0;">최신 버전으로 업데이트할까요?</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="document.getElementById(\'update-overlay\').hidden=true">나중에</button>'+
+        '<button class="btn btn-primary" onclick="applyUpdate()">업데이트</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('update-overlay').hidden = false;
+}
+function applyUpdate(){
+  window.location.href = LATEST_URL+'?t='+Date.now();
+}
+
 render();
+checkForUpdate();
 </script>
 </body>
 </html>
