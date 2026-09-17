@@ -340,12 +340,46 @@ function ensureDay(dateStr){
   attachDayListener(dateStr);
   return state.byDate[dateStr];
 }
+/* Firebase RTDB drops any key whose value is null (and collapses arrays/
+   objects made entirely of nulls), so a freshly round-tripped day is
+   missing most of the all-null fields our empty templates start with.
+   Rebuild the expected shape on read instead of trusting val() as-is. */
+function normalizeJob(raw){
+  if(!raw) return null;
+  var job = emptyJob(raw.weight, raw.product);
+  job.startAt = raw.startAt || null;
+  job.endAt = raw.endAt || null;
+  job.status = raw.status || 'in_progress';
+  job.requestedAt = raw.requestedAt || null;
+  job.requesterSignature = raw.requesterSignature || null;
+  job.approvedBy = raw.approvedBy || null;
+  job.approvedAt = raw.approvedAt || null;
+  job.approverSignature = raw.approverSignature || null;
+  var rawCps = raw.checkpoints || {};
+  CP_KEYS.forEach(function(k){
+    var rc = rawCps[k];
+    job.checkpoints[k] = { photo:(rc && rc.photo) || null, time:(rc && rc.time) || null };
+  });
+  return job;
+}
+function normalizeDay(raw){
+  var day = emptyDay();
+  if(raw && raw.lines){
+    [1,2,3,4].forEach(function(id){
+      var rawLine = raw.lines[id];
+      if(!rawLine || !rawLine.slots) return;
+      for(var i=0;i<4;i++){
+        day.lines[id].slots[i] = normalizeJob(rawLine.slots[i]);
+      }
+    });
+  }
+  return day;
+}
 function attachDayListener(dateStr){
   if(dayListeners[dateStr]) return;
   dayListeners[dateStr] = true;
   fbdb.ref('days/'+dateStr).on('value', function(snap){
-    var val = snap.val();
-    state.byDate[dateStr] = val || emptyDay();
+    state.byDate[dateStr] = normalizeDay(snap.val());
     if(dateStr===currentDateStr) render();
   });
 }
