@@ -238,16 +238,28 @@ input{font:inherit;color:inherit;}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script src="capacitor.js"></script>
 <script>
-var STORAGE_KEY = 'goldenTimeLog_v13';
+var firebaseConfig = {
+  apiKey: "AIzaSyDbcBtUXZHbGql0NkAYcN3F4JRYIgviTKU",
+  authDomain: "gold-time-log.firebaseapp.com",
+  databaseURL: "https://gold-time-log-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "gold-time-log",
+  storageBucket: "gold-time-log.firebasestorage.app",
+  messagingSenderId: "487725712000",
+  appId: "1:487725712000:web:bdff91c3ad996f0f665c65"
+};
+firebase.initializeApp(firebaseConfig);
+var fbdb = firebase.database();
+
 var CP_KEYS = ['start','lunchBefore','lunchAfter','breakBefore','breakAfter','dinnerBefore','dinnerAfter','end'];
 var CP_LABELS = {
   start:'생산 시작', lunchBefore:'점심식사 전', lunchAfter:'점심식사 후',
   breakBefore:'쉬는시간 전', breakAfter:'쉬는시간 후',
   dinnerBefore:'저녁식사 전', dinnerAfter:'저녁식사 후', end:'생산종료'
 };
-var SEED_OFFSETS = {start:0, lunchBefore:2.5, lunchAfter:3.5, breakBefore:5, breakAfter:5.2, dinnerBefore:6.5, dinnerAfter:7, end:8};
 var LINE_WEIGHTS = {
   1: ['700g','1.2kg'],
   2: ['500g','700g','1.2kg','2.45kg'],
@@ -299,11 +311,8 @@ function pad(n){ return String(n).padStart(2,'0'); }
 function fmtTime(d){ d=new Date(d); return pad(d.getHours())+':'+pad(d.getMinutes()); }
 function fmtDate(d){ d=new Date(d); return d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate()); }
 function fmtDateTime(d){ return fmtDate(d)+' '+fmtTime(d); }
-function addHours(d,h){ return new Date(new Date(d).getTime()+h*3600*1000); }
-function addDays(d,n){ return new Date(new Date(d).getTime()+n*86400000); }
 function dateKey(d){ d=new Date(d); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function todayStr(){ return dateKey(new Date()); }
-function todayAt(h,m){ var d=new Date(); d.setHours(h,m,0,0); return d.toISOString(); }
 
 function emptyJob(weight, product){
   var cps={};
@@ -317,69 +326,44 @@ function emptyDay(){
   return { lines:lines };
 }
 
-function seedState(){
-  var byDate = {};
-  var today = todayStr();
-  byDate[today] = emptyDay();
-
-  var j1 = emptyJob('700g','올리고당');
-  j1.startAt = todayAt(6,0);
-  j1.checkpoints.start = {photo:'seed', time:j1.startAt};
-  j1.checkpoints.lunchBefore = {photo:'seed', time:addHours(j1.startAt,2.5).toISOString()};
-  j1.checkpoints.lunchAfter = {photo:'seed', time:addDays(addHours(j1.startAt,3.5),-1).toISOString()};
-  byDate[today].lines[1].slots[0] = j1;
-
-  var j1b = emptyJob('1.2kg','쌀올리고당');
-  j1b.startAt = todayAt(7,20);
-  j1b.checkpoints.start = {photo:'seed', time:j1b.startAt};
-  byDate[today].lines[1].slots[1] = j1b;
-
-  var j3 = emptyJob('9kg','물엿');
-  j3.startAt = todayAt(5,30);
-  j3.endAt = todayAt(13,40);
-  CP_KEYS.forEach(function(k){
-    var t = k==='start'?j3.startAt : k==='end'?j3.endAt : addHours(j3.startAt, SEED_OFFSETS[k]).toISOString();
-    j3.checkpoints[k]={photo:'seed', time:t};
-  });
-  j3.status='pending_approval';
-  j3.requestedAt = addHours(j3.endAt,0.1).toISOString();
-  byDate[today].lines[3].slots[0] = j3;
-
-  var yStr = dateKey(addDays(new Date(),-1));
-  byDate[yStr] = emptyDay();
-  var j4 = emptyJob('10kg','황물엿');
-  j4.startAt = yStr+'T06:10:00';
-  j4.endAt = yStr+'T14:05:00';
-  CP_KEYS.forEach(function(k){
-    var t = k==='start'?j4.startAt : k==='end'?j4.endAt : addHours(j4.startAt, SEED_OFFSETS[k]).toISOString();
-    j4.checkpoints[k]={photo:'seed', time:t};
-  });
-  j4.status='approved';
-  j4.approvedBy='ADMIN · QA팀';
-  j4.approvedAt = yStr+'T14:40:00';
-  byDate[yStr].lines[4].slots[0] = j4;
-
-  return { byDate:byDate };
-}
-
-var state = null;
+/* Firebase Realtime Database backing. state.byDate is a local mirror kept
+   in sync by live listeners; writes go straight to Firebase and the
+   listener echoes them back (and pushes remote changes from other devices). */
+var state = { byDate:{} };
 var currentDateStr = todayStr();
-function loadState(){
-  try{
-    var raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){}
-  return seedState();
-}
-function saveState(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
-}
+var dayListeners = {};
+var dateIndexCache = {};
+var dateIndexListenerAttached = false;
+
 function ensureDay(dateStr){
   if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
+  attachDayListener(dateStr);
   return state.byDate[dateStr];
+}
+function attachDayListener(dateStr){
+  if(dayListeners[dateStr]) return;
+  dayListeners[dateStr] = true;
+  fbdb.ref('days/'+dateStr).on('value', function(snap){
+    var val = snap.val();
+    state.byDate[dateStr] = val || emptyDay();
+    if(dateStr===currentDateStr) render();
+  });
+}
+function attachDateIndexListener(){
+  if(dateIndexListenerAttached) return;
+  dateIndexListenerAttached = true;
+  fbdb.ref('dateIndex').on('value', function(snap){
+    dateIndexCache = snap.val() || {};
+    var top = nav[nav.length-1];
+    if(top && top.screen==='adminCalendar') render();
+  });
 }
 function getJob(lineId, slot){ return ensureDay(currentDateStr).lines[lineId].slots[slot]; }
 function setJob(lineId, slot, job){ ensureDay(currentDateStr).lines[lineId].slots[slot] = job; }
+function saveState(){
+  fbdb.ref('days/'+currentDateStr).set(state.byDate[currentDateStr]);
+  fbdb.ref('dateIndex/'+currentDateStr).set(true);
+}
 function onDateChange(v){
   if(!v) return;
   if(v > todayStr()) v = todayStr();
@@ -883,9 +867,7 @@ function submitAdminPw(){
 }
 
 function dateHasData(dateStr){
-  var day = state.byDate[dateStr];
-  if(!day) return false;
-  return [1,2,3,4].some(function(id){ return day.lines[id].slots.some(function(s){ return !!s; }); });
+  return !!dateIndexCache[dateStr];
 }
 function changeCalMonth(delta){
   var m = adminCalMonth+delta;
@@ -900,6 +882,7 @@ function openAdminDate(dateStr){
   push({screen:'home'});
 }
 function renderAdminCalendar(){
+  attachDateIndexListener();
   renderAppBar('작성일 달력', {showBack:true});
   var y=adminCalYear, m=adminCalMonth;
   var firstWeekday = new Date(y, m-1, 1).getDay();
@@ -1207,7 +1190,6 @@ function render(){
   document.getElementById('screen-root').scrollTop = 0;
 }
 
-state = loadState();
 render();
 </script>
 </body>
