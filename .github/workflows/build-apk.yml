@@ -31,9 +31,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Ensure a stable debug signing keystore
         run: |
           mkdir -p ~/.android
