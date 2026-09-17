@@ -34,6 +34,29 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Ensure a stable debug signing keystore
+        run: |
+          mkdir -p ~/.android
+          if [ -f ci/debug.keystore ]; then
+            echo "Using existing committed debug keystore"
+            cp ci/debug.keystore ~/.android/debug.keystore
+          else
+            echo "No committed debug keystore yet - generating and committing one"
+            mkdir -p ci
+            keytool -genkeypair -v \
+              -keystore ci/debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            cp ci/debug.keystore ~/.android/debug.keystore
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add ci/debug.keystore
+            git commit -m "ci: add stable debug signing keystore [skip ci]"
+            git push
+          fi
+
       - name: Install dependencies
         run: npm install
 
