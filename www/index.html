@@ -317,7 +317,7 @@ function todayStr(){ return dateKey(new Date()); }
 
 function emptyJob(weight, product){
   var cps={};
-  CP_KEYS.forEach(function(k){ cps[k]={photo:null, time:null}; });
+  CP_KEYS.forEach(function(k){ cps[k]={photo:null, time:null, ocrText:null, ocrMatch:null}; });
   return { weight:weight, product:product, startAt:null, endAt:null, checkpoints:cps, status:'in_progress', requestedAt:null, requesterSignature:null, approvedBy:null, approvedAt:null, approverSignature:null };
 }
 function emptyLine(){ return { slots:[null,null,null,null] }; }
@@ -359,7 +359,7 @@ function normalizeJob(raw){
   var rawCps = raw.checkpoints || {};
   CP_KEYS.forEach(function(k){
     var rc = rawCps[k];
-    job.checkpoints[k] = { photo:(rc && rc.photo) || null, time:(rc && rc.time) || null };
+    job.checkpoints[k] = { photo:(rc && rc.photo) || null, time:(rc && rc.time) || null, ocrText:(rc && rc.ocrText) || null, ocrMatch:(rc && rc.ocrMatch) || null };
   });
   return job;
 }
@@ -798,14 +798,50 @@ function savePhoto(){
   }
   pendingFileData = null;
   saveState();
+  runOcrCheck(lineId, slot, key);
   goBack();
 }
 function deletePhoto(){
   var lineId = currentLineId(), slot = currentSlot(), key = currentKey();
-  getJob(lineId, slot).checkpoints[key].photo = null;
+  var cp = getJob(lineId, slot).checkpoints[key];
+  cp.photo = null; cp.ocrText = null; cp.ocrMatch = null;
   pendingFileData = null;
   saveState();
   renderPhotoScreen(lineId, slot, key);
+}
+
+/* On-device OCR (Google ML Kit via Capacitor). Only available inside the
+   native app - silently skipped on web/Pages where the plugin isn't
+   installed. Runs after a photo save, updates the checkpoint's OCR
+   fields once done, and re-renders whatever screen is showing then. */
+function extractDateFromText(text){
+  if(!text) return null;
+  var m = /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/.exec(text);
+  if(!m) return null;
+  return m[1]+'-'+pad(parseInt(m[2],10))+'-'+pad(parseInt(m[3],10));
+}
+async function runOcrCheck(lineId, slot, key){
+  var plugins = window.Capacitor && window.Capacitor.Plugins;
+  if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
+  var job = getJob(lineId, slot);
+  var cp = job.checkpoints[key];
+  if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
+  if(!m) return;
+  var ext = m[1]==='jpg' ? 'jpeg' : m[1];
+  var fname = 'ocr_'+Date.now()+'.'+ext;
+  try{
+    var written = await plugins.Filesystem.writeFile({ path:fname, data:m[2], directory:'CACHE' });
+    var result = await plugins.TextRecognition.processImage({ path:written.uri, script:'LATIN' });
+    var extractedDate = extractDateFromText(result && result.text);
+    cp.ocrText = (result && result.text) || null;
+    cp.ocrMatch = extractedDate ? (extractedDate===currentDateStr ? 'match' : 'mismatch') : null;
+    saveState();
+    render();
+    try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
+  }catch(e){
+    console.warn('OCR failed', e);
+  }
 }
 
 function renderAppBar(title, opts){
@@ -820,7 +856,9 @@ function renderAppBar(title, opts){
 }
 
 function ocrMatchStatus(cp){
-  if(!cp.photo || !cp.time) return null;
+  if(!cp.photo) return null;
+  if(cp.ocrMatch) return cp.ocrMatch;
+  if(!cp.time) return null;
   return (dateKey(cp.time)===currentDateStr) ? 'match' : 'mismatch';
 }
 
@@ -1150,12 +1188,24 @@ function renderPhotoScreen(lineId, slot, key){
     '<div class="timerow"><span class="k">시각</span><button type="button" class="timepick" id="cp-time-display" onclick="openTimePicker()">'+ICON.clock+' '+fmtAmPmLabel(t.getHours(),t.getMinutes())+' '+ICON.chevdown+'</button>'+
       '<input type="hidden" id="cp-time-input" value="'+pad(t.getHours())+':'+pad(t.getMinutes())+'"></div>';
 
+  var ocrRow = '';
+  if(cp.photo && (cp.ocrText || cp.ocrMatch)){
+    var ocrStatus = ocrMatchStatus(cp);
+    var ocrBadge = ocrStatus ? '<span class="cpmatch '+ocrStatus+'" style="display:inline-block;margin-top:4px;">'+(ocrStatus==='match'?'일치':'불일치')+'</span>' : '';
+    ocrRow = '<div class="timerow" style="align-items:flex-start;flex-direction:column;gap:4px;">'+
+      '<span class="k">OCR 인식 텍스트</span>'+
+      '<span class="v" style="font-family:var(--font-mono);font-size:12px;white-space:normal;word-break:break-all;">'+(cp.ocrText || '날짜를 못 읽었어요')+'</span>'+
+      ocrBadge+
+    '</div>';
+  }
+
   var html =
     frame +
     (locked ? '<div class="hint" style="margin:0;">결재 완료된 배치예요 · 사진만 다시 등록할 수 있어요</div>' : '') +
     '<input type="file" id="cp-file-input" accept="image/*" capture="environment" style="display:none" onchange="handleFile(this)">'+
     '<button class="btn btn-outline" onclick="triggerFilePick()">'+(photo||isSeedOnly?'다시 촬영/선택':'사진 선택')+'</button>'+
     timeRow +
+    ocrRow +
     '<div class="errtext" id="photo-err"></div>'+
     '<div class="btnrow">'+
       '<button class="btn btn-outline" onclick="deletePhoto()">삭제</button>'+
