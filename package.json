@@ -1,6 +1,6 @@
 {
   "name": "golden-time-log-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "당류 소비기한 골든타임 생산일지 - Android app",
   "scripts": {
