@@ -135,20 +135,20 @@ input{font:inherit;color:inherit;}
 .appbar .ciword{flex:0 0 auto;font-size:12px;}
 .appbar .datepick{align-self:flex-end;font-family:var(--font-mono);font-size:12px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:8px;padding:5px 6px;color:var(--text-primary);}
 
-.content{flex:1;overflow-y:auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:16px;}
+.content{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;padding:18px 16px 28px;display:flex;flex-direction:column;gap:16px;}
 .content.tight{padding:10px;gap:0;}
 .eyebrow{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);}
 
 .card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:16px;}
 
 /* home */
-.homegrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;}
-.linetile{width:100%;height:100%;min-height:0;background:var(--surface-2);border:0.5px solid var(--border);border-radius:20px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+.homegrid{flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;}
+.linetile{width:100%;height:100%;min-width:0;min-height:0;background:var(--surface-2);border:0.5px solid var(--border);border-radius:20px;padding:12px;display:flex;flex-direction:column;gap:8px;}
 .tilehead{display:flex;align-items:baseline;gap:4px;flex:0 0 auto;padding:0 2px;}
 .tilenum{font-family:var(--font-mono);font-size:22px;font-weight:700;line-height:1;color:var(--text-primary);}
 .tilelabel{font-size:11px;color:var(--text-muted);}
-.slotlist{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;}
-.slotrow{flex:1;min-height:0;width:100%;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;font-weight:500;color:var(--text-primary);}
+.slotlist{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:6px;}
+.slotrow{flex:1;min-width:0;min-height:0;width:100%;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;font-weight:500;color:var(--text-primary);}
 .slotrow:hover{border-color:var(--primary);}
 .slotrow.empty{color:var(--text-muted);border-style:dashed;font-weight:400;}
 .slotname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
