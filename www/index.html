@@ -295,6 +295,14 @@ var LINE_PRODUCTS = {
 };
 var SLOT_COUNT = 4;
 
+var VISION_ITEMS_BASE = ['라벨','캡','소비기한'];
+var VISION_FILM_PRODUCTS = ['알룰로스 오리지널','알룰로스 시럽용'];
+function visionCheckItems(lineId, product){
+  if(lineId===1) return ['라벨','캡','소비기한','수축필름'];
+  if(lineId===2 && VISION_FILM_PRODUCTS.indexOf(product)>=0) return ['라벨','캡','소비기한','수축필름'];
+  return VISION_ITEMS_BASE;
+}
+
 var ICON = {
   back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   chev:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
@@ -318,7 +326,7 @@ function todayStr(){ return dateKey(new Date()); }
 
 function emptyJob(weight, product){
   var cps={};
-  CP_KEYS.forEach(function(k){ cps[k]={photo:null, time:null, ocrText:null, ocrMatch:null}; });
+  CP_KEYS.forEach(function(k){ cps[k]={photo:null, time:null, ocrText:null, ocrMatch:null, vision:{}}; });
   return { weight:weight, product:product, startAt:null, endAt:null, checkpoints:cps, status:'in_progress', requestedAt:null, requesterSignature:null, approvedBy:null, approvedAt:null, approverSignature:null };
 }
 function emptyLine(){ return { slots:[null,null,null,null] }; }
@@ -360,7 +368,10 @@ function normalizeJob(raw){
   var rawCps = raw.checkpoints || {};
   CP_KEYS.forEach(function(k){
     var rc = rawCps[k];
-    job.checkpoints[k] = { photo:(rc && rc.photo) || null, time:(rc && rc.time) || null, ocrText:(rc && rc.ocrText) || null, ocrMatch:(rc && rc.ocrMatch) || null };
+    var rawVision = (rc && rc.vision) || {};
+    var vision = {};
+    Object.keys(rawVision).forEach(function(item){ if(rawVision[item]) vision[item] = rawVision[item]; });
+    job.checkpoints[k] = { photo:(rc && rc.photo) || null, time:(rc && rc.time) || null, ocrText:(rc && rc.ocrText) || null, ocrMatch:(rc && rc.ocrMatch) || null, vision:vision };
   });
   return job;
 }
@@ -1193,6 +1204,14 @@ function renderTracking(lineId, slot){
   document.querySelector('.phone').appendChild(actionbar);
 }
 
+function setVisionCheck(lineId, slot, key, item, value){
+  var cp = getJob(lineId, slot).checkpoints[key];
+  cp.vision = cp.vision || {};
+  if(cp.vision[item]===value) delete cp.vision[item];
+  else cp.vision[item] = value;
+  saveState();
+  renderPhotoScreen(lineId, slot, key);
+}
 function renderPhotoScreen(lineId, slot, key){
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
@@ -1224,6 +1243,23 @@ function renderPhotoScreen(lineId, slot, key){
     '</div>';
   }
 
+  var visionItems = visionCheckItems(lineId, job.product);
+  var visionRow = '';
+  if(visionItems.length){
+    var visionRows = visionItems.map(function(item){
+      var val = cp.vision[item] || null;
+      if(locked){
+        return '<div class="timerow"><span class="k">'+item+'</span><span class="v" style="font-weight:700;">'+(val||'-')+'</span></div>';
+      }
+      return '<div class="timerow"><span class="k">'+item+'</span>'+
+        '<div style="display:flex;gap:6px;">'+
+          '<button type="button" class="btn '+(val==='O'?'btn-primary':'btn-outline')+'" style="padding:4px 16px;" onclick="setVisionCheck('+lineId+','+slot+',\''+key+'\',\''+item+'\',\'O\')">O</button>'+
+          '<button type="button" class="btn '+(val==='X'?'btn-primary':'btn-outline')+'" style="padding:4px 16px;" onclick="setVisionCheck('+lineId+','+slot+',\''+key+'\',\''+item+'\',\'X\')">X</button>'+
+        '</div></div>';
+    }).join('');
+    visionRow = '<div class="hint" style="margin:10px 0 0;">영상검출기 점검</div>' + visionRows;
+  }
+
   var html =
     frame +
     (locked ? '<div class="hint" style="margin:0;">결재 완료된 배치예요 · 사진만 다시 등록할 수 있어요</div>' : '') +
@@ -1231,6 +1267,7 @@ function renderPhotoScreen(lineId, slot, key){
     '<button class="btn btn-outline" onclick="triggerFilePick()">'+(photo||isSeedOnly?'다시 촬영/선택':'사진 선택')+'</button>'+
     timeRow +
     ocrRow +
+    visionRow +
     '<div class="errtext" id="photo-err"></div>'+
     '<div class="btnrow">'+
       '<button class="btn btn-outline" onclick="deletePhoto()">삭제</button>'+
@@ -1371,6 +1408,19 @@ function downloadNativeUpdate(){
   }
   document.getElementById('update-overlay').hidden = true;
 }
+
+/* Hardware back button (Android) - navigate the in-app screen stack
+   instead of the OS default of closing the app, matching the app's
+   own back-arrow button. Only exits once nav is back at the root
+   role-select screen. */
+(function(){
+  var plugins = window.Capacitor && window.Capacitor.Plugins;
+  if(!plugins || !plugins.App) return;
+  plugins.App.addListener('backButton', function(){
+    if(nav.length>1) goBack();
+    else plugins.App.exitApp();
+  });
+})();
 
 render();
 checkForUpdate();
