@@ -1028,49 +1028,90 @@ function arrayBufferToBase64(buffer){
   return btoa(binary);
 }
 
+/* Column-width (Excel "characters") / row-height (points) to pixels,
+   using the standard Calibri-11 default-digit-width approximation -
+   needed to center images inside a cell by pixel offset. */
+function excelColWidthToPx(widthChars){
+  var mdw = 7;
+  return Math.round(((256*widthChars + Math.trunc(128/mdw)) / 256) * mdw);
+}
+function excelRowHeightToPx(heightPt){ return heightPt * 96/72; }
+function loadImageSize(dataUri){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){ resolve({width:img.naturalWidth||1, height:img.naturalHeight||1}); };
+    img.onerror = function(){ resolve({width:1, height:1}); };
+    img.src = dataUri;
+  });
+}
+async function addCenteredImage(wb, ws, dataUri, colIndex0, rowIndex0, cellWpx, cellHpx){
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(dataUri);
+  if(!m) return;
+  var ext = m[1]==='jpg' ? 'jpeg' : m[1];
+  var size = await loadImageSize(dataUri);
+  var maxW = cellWpx*0.9, maxH = cellHpx*0.9;
+  var scale = Math.min(maxW/size.width, maxH/size.height);
+  var w = size.width*scale, h = size.height*scale;
+  var offX = (cellWpx-w)/2, offY = (cellHpx-h)/2;
+  var imgId = wb.addImage({ base64:m[2], extension:ext });
+  ws.addImage(imgId, {
+    tl: { col: colIndex0 + offX/cellWpx, row: rowIndex0 + offY/cellHpx },
+    ext: { width:w, height:h }
+  });
+}
+
 async function exportDayExcel(dateStr){
   if(typeof ExcelJS==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'); return; }
+  var resp = await fetch('./template.xlsx');
+  if(!resp.ok){ alert('엑셀 템플릿을 불러오지 못했어요.'); return; }
+  var templateBuffer = await resp.arrayBuffer();
   var wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(templateBuffer);
   var day = state.byDate[dateStr];
-  [1,2,3,4].forEach(function(lineId){
-    var ws = wb.addWorksheet(lineId+'호기');
-    ws.getCell('B2').value = '작성일';
-    ws.getCell('B2').font = {bold:true};
-    ws.getCell('C2').value = dateStr.replace(/-/g,'.');
+
+  for(var lineId=1; lineId<=4; lineId++){
+    var ws = wb.getWorksheet(lineId+'호기');
+    if(!ws) continue;
+    ws.getCell('C4').value = dateStr.replace(/-/g,'.');
     var slots = day ? day.lines[lineId].slots : [null,null,null,null];
-    slots.forEach(function(job, i){
-      var base = 4 + i*4;
-      var labelCell = ws.getCell('B'+base);
-      labelCell.value = job ? (job.product+' '+job.weight) : ('품목'+(i+1));
-      labelCell.font = {bold:true};
-      var headerRow = base+1;
-      CP_KEYS.forEach(function(key, ci){
-        var col = String.fromCharCode(66+ci);
-        var cell = ws.getCell(col+headerRow);
-        cell.value = CP_LABELS[key];
-        cell.font = {bold:true};
-        cell.alignment = {horizontal:'center'};
-        cell.border = {top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
-      });
-      var photoRow = base+2;
-      ws.getRow(photoRow).height = 110;
-      if(job){
-        CP_KEYS.forEach(function(key, ci){
-          var cp = job.checkpoints[key];
-          if(cp.photo && cp.photo.indexOf('data:')===0){
-            var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
-            if(m){
-              var ext = m[1]==='jpg' ? 'jpeg' : m[1];
-              var imgId = wb.addImage({ base64:m[2], extension:ext });
-              ws.addImage(imgId, { tl:{col:1+ci, row:photoRow-1}, ext:{width:95, height:105} });
-            }
-          }
+    var photoColWpx = excelColWidthToPx(ws.getColumn(4).width || 13.3);
+    var sigColWpx = excelColWidthToPx(ws.getColumn(13).width || 10.4);
+    for(var i=0;i<4;i++){
+      var job = slots[i];
+      if(!job) continue;
+      var base = 6 + i*9;
+      ws.getCell('D'+base).value = job.product+' '+job.weight;
+
+      var timeRow = base+2, photoRow = base+3;
+      var visionRows = { '라벨':base+4, '캡':base+5, '소비기한':base+6, '수축필름':base+7 };
+      var applicableItems = visionCheckItems(lineId, job.product);
+      var photoRowHpx = excelRowHeightToPx(ws.getRow(photoRow).height || 89.4);
+
+      for(var ci=0; ci<CP_KEYS.length; ci++){
+        var key = CP_KEYS[ci];
+        var cp = job.checkpoints[key];
+        var col = String.fromCharCode(68+ci);
+
+        if(cp.time){ ws.getCell(col+timeRow).value = fmtTime(cp.time); }
+
+        if(cp.photo && cp.photo.indexOf('data:')===0){
+          await addCenteredImage(wb, ws, cp.photo, 3+ci, photoRow-1, photoColWpx, photoRowHpx);
+        }
+
+        applicableItems.forEach(function(item){
+          var v = cp.vision && cp.vision[item];
+          if(v) ws.getCell(col+visionRows[item]).value = v;
         });
       }
-    });
-    ws.getColumn(1).width = 3;
-    for(var c=2;c<=9;c++) ws.getColumn(c).width = 14;
-  });
+
+      if(job.requesterSignature){
+        await addCenteredImage(wb, ws, job.requesterSignature, 12, photoRow-1, sigColWpx, photoRowHpx);
+      }
+      if(job.approverSignature){
+        await addCenteredImage(wb, ws, job.approverSignature, 13, photoRow-1, sigColWpx, photoRowHpx);
+      }
+    }
+  }
 
   var buffer = await wb.xlsx.writeBuffer();
   var filename = dateStr+'_golden_time.xlsx';
