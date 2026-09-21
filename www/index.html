@@ -818,14 +818,9 @@ function deletePhoto(){
    native app - silently skipped on web/Pages where the plugin isn't
    installed. Runs after a photo save, updates the checkpoint's OCR
    fields once done, and re-renders whatever screen is showing then. */
-function extractDateFromText(text){
-  if(!text) return null;
-  var norm = text.replace(/[oO]/g,'0').replace(/[lI]/g,'1');
-  var m = /(\d{4})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})\s*일?/.exec(norm);
-  if(!m) return null;
-  var mm = parseInt(m[2],10), dd = parseInt(m[3],10);
-  if(mm<1 || mm>12 || dd<1 || dd>31) return null;
-  return m[1]+'-'+pad(mm)+'-'+pad(dd);
+function ocrDigitsOnly(text){
+  if(!text) return '';
+  return text.replace(/[oO]/g,'0').replace(/[lI]/g,'1').replace(/\D/g,'');
 }
 async function runOcrCheck(lineId, slot, key){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
@@ -840,10 +835,11 @@ async function runOcrCheck(lineId, slot, key){
   try{
     var written = await plugins.Filesystem.writeFile({ path:fname, data:m[2], directory:'CACHE' });
     var result = await plugins.TextRecognition.processImage({ path:written.uri, script:'LATIN' });
-    var extractedDate = extractDateFromText(result && result.text);
-    var expectedDate = computeConsumeDateStr(currentDateStr, job.product);
-    cp.ocrText = (result && result.text) || null;
-    cp.ocrMatch = extractedDate ? (extractedDate===expectedDate ? 'match' : 'mismatch') : null;
+    var rawText = (result && result.text) || '';
+    var expectedDigits = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
+    var textDigits = ocrDigitsOnly(rawText);
+    cp.ocrText = rawText || null;
+    cp.ocrMatch = rawText ? (textDigits.indexOf(expectedDigits)>=0 ? 'match' : 'mismatch') : null;
     saveState();
     render();
     try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
