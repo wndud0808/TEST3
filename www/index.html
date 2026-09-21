@@ -583,7 +583,6 @@ function slotDotColor(job){
 }
 
 var pendingFileData = null;
-var pendingOcrData = null;
 function triggerFilePick(){ document.getElementById('cp-file-input').click(); }
 
 var CROP_MIN = 40;
@@ -684,10 +683,7 @@ function renderCropToDataURL(sx, sy, sw, sh, maxDim, quality){
 function confirmCrop(){
   var scale = cropImg.naturalWidth / cropStageEl.clientWidth;
   var sx = cropBox.x*scale, sy = cropBox.y*scale, sw = cropBox.w*scale, sh = cropBox.h*scale;
-  pendingFileData = renderCropToDataURL(sx, sy, sw, sh, 720, 0.62);
-  /* Higher-res render kept only in memory for the OCR pass right after
-     save - never stored on the job or synced, so storage stays small. */
-  pendingOcrData = renderCropToDataURL(sx, sy, sw, sh, 1600, 0.92);
+  pendingFileData = renderCropToDataURL(sx, sy, sw, sh, 1280, 0.85);
   document.getElementById('crop-overlay').hidden = true;
   cropImg = null;
   renderPhotoScreen(currentLineId(), currentSlot(), currentKey());
@@ -794,7 +790,6 @@ function savePhoto(){
     return;
   }
   cp.photo = photo;
-  var ocrSource = pendingFileData ? pendingOcrData : null;
   var timeInput = document.getElementById('cp-time-input');
   if(timeInput){
     var val = timeInput.value;
@@ -808,9 +803,8 @@ function savePhoto(){
     else if(key==='end') job.endAt = iso;
   }
   pendingFileData = null;
-  pendingOcrData = null;
   saveState();
-  runOcrCheck(lineId, slot, key, ocrSource);
+  runOcrCheck(lineId, slot, key);
   goBack();
 }
 function deletePhoto(){
@@ -818,7 +812,6 @@ function deletePhoto(){
   var cp = getJob(lineId, slot).checkpoints[key];
   cp.photo = null; cp.ocrText = null; cp.ocrMatch = null;
   pendingFileData = null;
-  pendingOcrData = null;
   saveState();
   renderPhotoScreen(lineId, slot, key);
 }
@@ -831,14 +824,13 @@ function ocrDigitsOnly(text){
   if(!text) return '';
   return text.replace(/[oO]/g,'0').replace(/[lI]/g,'1').replace(/\D/g,'');
 }
-async function runOcrCheck(lineId, slot, key, ocrSource){
+async function runOcrCheck(lineId, slot, key){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
-  var source = ocrSource || cp.photo;
-  if(!source || source.indexOf('data:')!==0) return;
-  var m = /^data:image\/(\w+);base64,(.+)$/.exec(source);
+  if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
   if(!m) return;
   var ext = m[1]==='jpg' ? 'jpeg' : m[1];
   var fname = 'ocr_'+Date.now()+'.'+ext;
@@ -1216,7 +1208,7 @@ function renderPhotoScreen(lineId, slot, key){
   var html =
     frame +
     (locked ? '<div class="hint" style="margin:0;">결재 완료된 배치예요 · 사진만 다시 등록할 수 있어요</div>' : '') +
-    '<input type="file" id="cp-file-input" accept="image/*" capture="environment" style="display:none" onchange="handleFile(this)">'+
+    '<input type="file" id="cp-file-input" accept="image/*" style="display:none" onchange="handleFile(this)">'+
     '<button class="btn btn-outline" onclick="triggerFilePick()">'+(photo||isSeedOnly?'다시 촬영/선택':'사진 선택')+'</button>'+
     timeRow +
     ocrRow +
