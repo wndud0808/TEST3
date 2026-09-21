@@ -65,6 +65,17 @@ jobs:
       - name: Add Android platform (generated fresh each build)
         run: npx cap add android
 
+      - name: Pin the debug build to our committed signing keystore
+        run: |
+          cat >> android/app/build.gradle <<'EOF'
+
+          android.signingConfigs.debug.storeFile = file('${{ github.workspace }}/ci/debug.keystore')
+          android.signingConfigs.debug.storePassword = 'android'
+          android.signingConfigs.debug.keyAlias = 'androiddebugkey'
+          android.signingConfigs.debug.keyPassword = 'android'
+          android.buildTypes.debug.signingConfig = android.signingConfigs.debug
+          EOF
+
       - name: Sync web assets into the native project
         run: npx cap sync android
 
@@ -73,6 +84,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+
+      - name: Verify the APK is signed with our stable keystore
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
