@@ -54,9 +54,10 @@ jobs:
             git push
           fi
 
-      - name: Stamp app version (current commit SHA)
+      - name: Stamp app version (hash of the served content + native build SHA)
         run: |
-          echo "{\"version\":\"${{ github.sha }}\"}" > www/version.json
+          HASH=$(sha256sum www/index.html | cut -d' ' -f1)
+          echo "{\"version\":\"$HASH\"}" > www/version.json
           echo "{\"sha\":\"${{ github.sha }}\"}" > www/native_version.json
 
       - name: Install dependencies
