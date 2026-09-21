@@ -1306,8 +1306,50 @@ function applyUpdate(){
   window.location.href = LATEST_URL+'?t='+Date.now();
 }
 
+var RELEASE_API_URL = 'https://api.github.com/repos/wndud0808/TEST3/releases/tags/debug-build';
+var RELEASE_APK_URL = 'https://github.com/wndud0808/TEST3/releases/download/debug-build/golden-time-log-debug.apk';
+function nativeCheckForUpdate(){
+  if(!window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) return;
+  fetch('./native_version.json', { cache:'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(local){
+      return fetch(RELEASE_API_URL+'?t='+Date.now(), { cache:'no-store', headers:{ 'Accept':'application/vnd.github+json' } })
+        .then(function(r){ return r.json(); })
+        .then(function(release){
+          var m = /build-sha:([0-9a-f]{40})/.exec((release && release.body) || '');
+          var remoteSha = m && m[1];
+          if(remoteSha && local && local.sha && remoteSha!==local.sha){
+            showNativeUpdatePopup();
+          }
+        });
+    })
+    .catch(function(){ /* offline, blocked, or no native_version.json (e.g. old APK before this feature) - ignore silently */ });
+}
+function showNativeUpdatePopup(){
+  document.getElementById('update-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>새 앱 버전이 있어요</h3>'+
+      '<div class="hint" style="margin:0;">기능이 추가된 새 APK가 나왔어요. 다운로드 후 설치해주세요.</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="document.getElementById(\'update-overlay\').hidden=true">나중에</button>'+
+        '<button class="btn btn-primary" onclick="downloadNativeUpdate()">다운로드</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('update-overlay').hidden = false;
+}
+function downloadNativeUpdate(){
+  var plugins = window.Capacitor && window.Capacitor.Plugins;
+  if(plugins && plugins.Browser){
+    plugins.Browser.open({ url: RELEASE_APK_URL });
+  } else {
+    window.open(RELEASE_APK_URL, '_blank');
+  }
+  document.getElementById('update-overlay').hidden = true;
+}
+
 render();
 checkForUpdate();
+nativeCheckForUpdate();
 </script>
 </body>
 </html>

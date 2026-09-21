@@ -9,6 +9,7 @@
   "dependencies": {
     "@capacitor-mlkit/text-recognition": "^8.2.1",
     "@capacitor/android": "^8.0.0",
+    "@capacitor/browser": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/filesystem": "^8.0.0",
     "@capacitor/share": "^8.0.0"

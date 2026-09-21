@@ -55,7 +55,9 @@ jobs:
           fi
 
       - name: Stamp app version (current commit SHA)
-        run: echo "{\"version\":\"${{ github.sha }}\"}" > www/version.json
+        run: |
+          echo "{\"version\":\"${{ github.sha }}\"}" > www/version.json
+          echo "{\"sha\":\"${{ github.sha }}\"}" > www/native_version.json
 
       - name: Install dependencies
         run: npm install
@@ -86,6 +88,8 @@ jobs:
         with:
           tag_name: debug-build
           name: 골든타임 생산일지 (debug build)
-          body: 자동 빌드된 최신 디버그 APK입니다. 폰에서 이 파일을 눌러 설치하세요 (출처를 알 수 없는 앱 설치 허용 필요).
+          body: |
+            자동 빌드된 최신 디버그 APK입니다. 폰에서 이 파일을 눌러 설치하세요 (출처를 알 수 없는 앱 설치 허용 필요).
+            build-sha:${{ github.sha }}
           prerelease: true
           files: golden-time-log-debug.apk
