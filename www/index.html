@@ -855,13 +855,36 @@ function ocrDigitsOnly(text){
   if(!text) return '';
   return text.replace(/[oO]/g,'0').replace(/[lI]/g,'1').replace(/\D/g,'');
 }
+/* Grayscale + contrast boost applied only to the transient OCR copy -
+   the stored/synced photo is never touched. Helps low-contrast
+   embossed date stamps (ink-free, shadow-only digits) stand out more
+   for the text recognizer. */
+function enhanceForOcr(dataUri){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){
+      try{
+        var canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        var ctx = canvas.getContext('2d');
+        ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      }catch(e){ resolve(dataUri); }
+    };
+    img.onerror = function(){ resolve(dataUri); };
+    img.src = dataUri;
+  });
+}
 async function runOcrCheck(lineId, slot, key){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
   if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
-  var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
+  var enhanced = await enhanceForOcr(cp.photo);
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(enhanced);
   if(!m) return;
   var ext = m[1]==='jpg' ? 'jpeg' : m[1];
   var fname = 'ocr_'+Date.now()+'.'+ext;
