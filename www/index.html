@@ -583,6 +583,7 @@ function slotDotColor(job){
 }
 
 var pendingFileData = null;
+var pendingOcrData = null;
 function triggerFilePick(){ document.getElementById('cp-file-input').click(); }
 
 var CROP_MIN = 40;
@@ -671,17 +672,22 @@ function closeCropSheet(){
   document.getElementById('crop-overlay').hidden = true;
   cropImg = null;
 }
-function confirmCrop(){
-  var scale = cropImg.naturalWidth / cropStageEl.clientWidth;
-  var sx = cropBox.x*scale, sy = cropBox.y*scale, sw = cropBox.w*scale, sh = cropBox.h*scale;
-  var maxDim = 720;
+function renderCropToDataURL(sx, sy, sw, sh, maxDim, quality){
   var outW = sw, outH = sh;
   if(sw>=sh){ outW = Math.min(maxDim, sw); outH = outW*(sh/sw); }
   else { outH = Math.min(maxDim, sh); outW = outH*(sw/sh); }
   var canvas = document.createElement('canvas');
   canvas.width = Math.round(outW); canvas.height = Math.round(outH);
   canvas.getContext('2d').drawImage(cropImg, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  pendingFileData = canvas.toDataURL('image/jpeg', 0.62);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+function confirmCrop(){
+  var scale = cropImg.naturalWidth / cropStageEl.clientWidth;
+  var sx = cropBox.x*scale, sy = cropBox.y*scale, sw = cropBox.w*scale, sh = cropBox.h*scale;
+  pendingFileData = renderCropToDataURL(sx, sy, sw, sh, 720, 0.62);
+  /* Higher-res render kept only in memory for the OCR pass right after
+     save - never stored on the job or synced, so storage stays small. */
+  pendingOcrData = renderCropToDataURL(sx, sy, sw, sh, 1600, 0.92);
   document.getElementById('crop-overlay').hidden = true;
   cropImg = null;
   renderPhotoScreen(currentLineId(), currentSlot(), currentKey());
@@ -788,6 +794,7 @@ function savePhoto(){
     return;
   }
   cp.photo = photo;
+  var ocrSource = pendingFileData ? pendingOcrData : null;
   var timeInput = document.getElementById('cp-time-input');
   if(timeInput){
     var val = timeInput.value;
@@ -801,8 +808,9 @@ function savePhoto(){
     else if(key==='end') job.endAt = iso;
   }
   pendingFileData = null;
+  pendingOcrData = null;
   saveState();
-  runOcrCheck(lineId, slot, key);
+  runOcrCheck(lineId, slot, key, ocrSource);
   goBack();
 }
 function deletePhoto(){
@@ -810,6 +818,7 @@ function deletePhoto(){
   var cp = getJob(lineId, slot).checkpoints[key];
   cp.photo = null; cp.ocrText = null; cp.ocrMatch = null;
   pendingFileData = null;
+  pendingOcrData = null;
   saveState();
   renderPhotoScreen(lineId, slot, key);
 }
@@ -822,13 +831,14 @@ function ocrDigitsOnly(text){
   if(!text) return '';
   return text.replace(/[oO]/g,'0').replace(/[lI]/g,'1').replace(/\D/g,'');
 }
-async function runOcrCheck(lineId, slot, key){
+async function runOcrCheck(lineId, slot, key, ocrSource){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
-  if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
-  var m = /^data:image\/(\w+);base64,(.+)$/.exec(cp.photo);
+  var source = ocrSource || cp.photo;
+  if(!source || source.indexOf('data:')!==0) return;
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(source);
   if(!m) return;
   var ext = m[1]==='jpg' ? 'jpeg' : m[1];
   var fname = 'ocr_'+Date.now()+'.'+ext;
