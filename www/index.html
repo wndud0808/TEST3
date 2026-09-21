@@ -816,9 +816,12 @@ function deletePhoto(){
    fields once done, and re-renders whatever screen is showing then. */
 function extractDateFromText(text){
   if(!text) return null;
-  var m = /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/.exec(text);
+  var norm = text.replace(/[oO]/g,'0').replace(/[lI]/g,'1');
+  var m = /(\d{4})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})\s*일?/.exec(norm);
   if(!m) return null;
-  return m[1]+'-'+pad(parseInt(m[2],10))+'-'+pad(parseInt(m[3],10));
+  var mm = parseInt(m[2],10), dd = parseInt(m[3],10);
+  if(mm<1 || mm>12 || dd<1 || dd>31) return null;
+  return m[1]+'-'+pad(mm)+'-'+pad(dd);
 }
 async function runOcrCheck(lineId, slot, key){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
