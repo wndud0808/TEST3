@@ -572,6 +572,10 @@ function computeConsumeDisplay(dateStr, product){
   var info = computeConsumeInfo(dateStr, productCategory(product));
   return info.year+'.'+pad(info.month)+'.'+pad(info.day)+info.suffix;
 }
+function computeConsumeDateStr(dateStr, product){
+  var info = computeConsumeInfo(dateStr, productCategory(product));
+  return info.year+'-'+pad(info.month)+'-'+pad(info.day);
+}
 function slotDotColor(job){
   if(job.status==='approved') return 'var(--success)';
   if(job.status==='pending_approval') return 'var(--gold)';
@@ -837,8 +841,9 @@ async function runOcrCheck(lineId, slot, key){
     var written = await plugins.Filesystem.writeFile({ path:fname, data:m[2], directory:'CACHE' });
     var result = await plugins.TextRecognition.processImage({ path:written.uri, script:'LATIN' });
     var extractedDate = extractDateFromText(result && result.text);
+    var expectedDate = computeConsumeDateStr(currentDateStr, job.product);
     cp.ocrText = (result && result.text) || null;
-    cp.ocrMatch = extractedDate ? (extractedDate===currentDateStr ? 'match' : 'mismatch') : null;
+    cp.ocrMatch = extractedDate ? (extractedDate===expectedDate ? 'match' : 'mismatch') : null;
     saveState();
     render();
     try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
