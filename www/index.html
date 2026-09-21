@@ -121,9 +121,10 @@ input{font:inherit;color:inherit;}
 .viewsheet img{width:100%;border-radius:14px;background:var(--surface);}
 .viewsheet .btn{max-width:200px;}
 .appbar{
-  display:flex;align-items:center;gap:10px;padding:16px;
+  display:flex;flex-direction:column;gap:8px;padding:16px;
   border-bottom:0.5px solid var(--border);background:var(--surface);flex:0 0 auto;
 }
+.appbar-row{display:flex;align-items:center;gap:10px;}
 .appbar .backbtn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:0 0 auto;color:var(--text-secondary);}
 .appbar .backbtn:hover{background:var(--surface-2);}
 .appbar .backbtn.hidden{visibility:hidden;}
@@ -132,7 +133,7 @@ input{font:inherit;color:inherit;}
 .appbar .rightaction:hover{background:var(--surface-2);}
 .ciword{font-weight:700;letter-spacing:0.02em;color:var(--text-secondary);}
 .appbar .ciword{flex:0 0 auto;font-size:12px;}
-.appbar .datepick{flex:0 0 auto;max-width:120px;font-family:var(--font-mono);font-size:12px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:8px;padding:5px 6px;color:var(--text-primary);}
+.appbar .datepick{align-self:flex-end;font-family:var(--font-mono);font-size:12px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:8px;padding:5px 6px;color:var(--text-primary);}
 
 .content{flex:1;overflow-y:auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:16px;}
 .content.tight{padding:10px;gap:0;}
@@ -884,11 +885,13 @@ function renderAppBar(title, opts){
   opts = opts || {};
   var bar = document.getElementById('appbar');
   bar.innerHTML =
-    '<button class="backbtn'+(opts.showBack?'':' hidden')+'" onclick="goBack()" aria-label="뒤로가기">'+ICON.back+'</button>'+
-    '<h1>'+title+'</h1>'+
-    (opts.rightLabel ? '<button class="rightaction" onclick="'+opts.rightAction+'">'+opts.rightLabel+'</button>' : '')+
-    (opts.showDate ? '<input type="date" class="datepick" value="'+currentDateStr+'" max="'+todayStr()+'" onchange="onDateChange(this.value)" aria-label="날짜 선택">' : '')+
-    CI_LOGO_HTML;
+    '<div class="appbar-row">'+
+      '<button class="backbtn'+(opts.showBack?'':' hidden')+'" onclick="goBack()" aria-label="뒤로가기">'+ICON.back+'</button>'+
+      '<h1>'+title+'</h1>'+
+      (opts.rightLabel ? '<button class="rightaction" onclick="'+opts.rightAction+'">'+opts.rightLabel+'</button>' : '')+
+      CI_LOGO_HTML+
+    '</div>'+
+    (opts.showDate ? '<input type="date" class="datepick" value="'+currentDateStr+'" max="'+todayStr()+'" onchange="onDateChange(this.value)" aria-label="날짜 선택">' : '');
 }
 
 function ocrMatchStatus(cp){
