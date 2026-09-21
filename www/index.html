@@ -235,6 +235,7 @@ input{font:inherit;color:inherit;}
     <div class="modal-overlay" id="sign-overlay" hidden></div>
     <div class="modal-overlay" id="view-overlay" hidden></div>
     <div class="modal-overlay" id="update-overlay" hidden></div>
+    <div class="modal-overlay" id="photopick-overlay" hidden></div>
   </div>
 </div>
 
@@ -583,7 +584,25 @@ function slotDotColor(job){
 }
 
 var pendingFileData = null;
-function triggerFilePick(){ document.getElementById('cp-file-input').click(); }
+function triggerFilePick(){
+  document.getElementById('photopick-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>사진 추가</h3>'+
+      '<div class="btnrow" style="flex-direction:column;gap:8px;">'+
+        '<button class="btn btn-primary" onclick="pickPhotoFrom(\'camera\')">카메라로 촬영</button>'+
+        '<button class="btn btn-outline" onclick="pickPhotoFrom(\'gallery\')">갤러리에서 선택</button>'+
+        '<button class="btn btn-outline" onclick="document.getElementById(\'photopick-overlay\').hidden=true">취소</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('photopick-overlay').hidden = false;
+}
+function pickPhotoFrom(source){
+  document.getElementById('photopick-overlay').hidden = true;
+  var input = document.getElementById('cp-file-input');
+  if(source==='camera') input.setAttribute('capture', 'environment');
+  else input.removeAttribute('capture');
+  input.click();
+}
 
 var CROP_MIN = 40;
 var CROP_HANDLE_IDS = ['tl','t','tr','l','r','bl','b','br'];
