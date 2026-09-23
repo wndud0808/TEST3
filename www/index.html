@@ -937,7 +937,7 @@ function cpTileHTML(lineId, slot, job, key){
   if(cp.photo){
     var img = cp.photo.indexOf('data:')===0 ? '<img src="'+cp.photo+'" alt="">' : '';
     var placeholderBg = img ? '' : 'background:linear-gradient(135deg, color-mix(in srgb, var(--primary) 22%, var(--surface-2)), var(--surface-2));';
-    var tapAction = adminMode ? 'openPhotoView('+lineId+','+slot+',\''+key+'\')' : 'openCheckpoint('+lineId+','+slot+',\''+key+'\')';
+    var tapAction = 'openPhotoView('+lineId+','+slot+',\''+key+'\')';
     tile = '<button class="cptile filled" style="'+placeholderBg+'" onclick="'+tapAction+'">'+
       img+'<div class="cpoverlay"></div>'+
       '<span class="checkbadge">'+ICON.check+'</span>'+
@@ -954,11 +954,16 @@ function cpTileHTML(lineId, slot, job, key){
 }
 
 function openPhotoView(lineId, slot, key){
-  var cp = getJob(lineId, slot).checkpoints[key];
+  var job = getJob(lineId, slot);
+  var cp = job.checkpoints[key];
   if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
+  var editable = !adminMode && job.status!=='approved';
+  var editBtn = editable ?
+    '<button class="btn btn-primary" onclick="closePhotoView(); openCheckpoint('+lineId+','+slot+',\''+key+'\');">수정하기</button>' : '';
   document.getElementById('view-overlay').innerHTML =
     '<div class="viewsheet">'+
       '<img src="'+cp.photo+'" alt="'+CP_LABELS[key]+' 사진">'+
+      editBtn+
       '<button class="btn btn-outline" onclick="closePhotoView()">닫기</button>'+
     '</div>';
   document.getElementById('view-overlay').hidden = false;
