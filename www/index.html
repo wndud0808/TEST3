@@ -120,6 +120,7 @@ input{font:inherit;color:inherit;}
 .viewsheet{width:100%;background:transparent;padding:0 16px 24px;display:flex;flex-direction:column;gap:12px;align-items:center;}
 .viewsheet img{width:100%;border-radius:14px;background:var(--surface);}
 .viewsheet .btn{max-width:200px;}
+.viewsheet .btn-outline{background:var(--surface);}
 .appbar{
   display:flex;flex-direction:column;gap:8px;padding:16px;
   border-bottom:0.5px solid var(--border);background:var(--surface);flex:0 0 auto;
@@ -205,7 +206,7 @@ input{font:inherit;color:inherit;}
 
 /* photo detail */
 .photoframe{width:100%;aspect-ratio:4/3;border-radius:16px;background:var(--surface-2);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
-.photoframe img{width:100%;height:100%;object-fit:cover;}
+.photoframe img{width:100%;height:100%;object-fit:contain;}
 .photoempty{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text-muted);}
 .timerow{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px;}
 .timerow .k{font-size:13px;color:var(--text-secondary);}
@@ -966,6 +967,17 @@ function openPhotoView(lineId, slot, key){
   document.getElementById('view-overlay').hidden = false;
 }
 function closePhotoView(){ document.getElementById('view-overlay').hidden = true; }
+function zoomCurrentPhoto(){
+  var cp = getJob(currentLineId(), currentSlot()).checkpoints[currentKey()];
+  var photo = pendingFileData || (cp.photo && cp.photo.indexOf('data:')===0 ? cp.photo : null);
+  if(!photo) return;
+  document.getElementById('view-overlay').innerHTML =
+    '<div class="viewsheet">'+
+      '<img src="'+photo+'" alt="">'+
+      '<button class="btn btn-outline" onclick="closePhotoView()">닫기</button>'+
+    '</div>';
+  document.getElementById('view-overlay').hidden = false;
+}
 
 var ADMIN_PASSWORD = '0808';
 var adminMode = false;
@@ -1289,7 +1301,7 @@ function renderPhotoScreen(lineId, slot, key){
   var isSeedOnly = cp.photo==='seed' && !pendingFileData;
 
   var frame = photo ?
-    '<div class="photoframe"><img src="'+photo+'" alt=""></div>' :
+    '<div class="photoframe" onclick="zoomCurrentPhoto()"><img src="'+photo+'" alt=""></div>' :
     (isSeedOnly ?
       '<div class="photoframe" style="background:linear-gradient(135deg, color-mix(in srgb, var(--primary) 20%, var(--surface-2)), var(--surface-2));"><div class="photoempty">'+ICON.camera+'<span>예시 촬영 이미지</span></div></div>' :
       '<div class="photoframe"><div class="photoempty">'+ICON.camera+'<span>등록된 사진이 없습니다</span></div></div>');
