@@ -648,7 +648,8 @@ function attachCropBoxDrag(){
   box.addEventListener('pointerdown', function(e){
     stageW = cropStageEl.clientWidth; stageH = cropStageEl.clientHeight;
     var h = e.target.dataset ? e.target.dataset.h : null;
-    mode = h || 'move';
+    if(!h) return; /* box body isn't draggable - only the resize handles are */
+    mode = h;
     startX=e.clientX; startY=e.clientY;
     start = { x:cropBox.x, y:cropBox.y, w:cropBox.w, h:cropBox.h };
     box.setPointerCapture(e.pointerId);
@@ -656,22 +657,16 @@ function attachCropBoxDrag(){
   });
   box.addEventListener('pointermove', function(e){
     if(!mode) return;
-    if(mode==='move'){
-      var nx = start.x+(e.clientX-startX), ny = start.y+(e.clientY-startY);
-      cropBox.x = Math.max(0, Math.min(stageW-cropBox.w, nx));
-      cropBox.y = Math.max(0, Math.min(stageH-cropBox.h, ny));
-    } else {
-      var axes = CROP_HANDLE_AXES[mode];
-      var rect = cropStageEl.getBoundingClientRect();
-      var px = Math.max(0, Math.min(stageW, e.clientX-rect.left));
-      var py = Math.max(0, Math.min(stageH, e.clientY-rect.top));
-      var x=start.x, y=start.y, w=start.w, h=start.h;
-      if(axes.ax===-1){ var nx2=Math.min(px, start.x+start.w-CROP_MIN); x=nx2; w=(start.x+start.w)-nx2; }
-      else if(axes.ax===1){ var nr=Math.max(px, start.x+CROP_MIN); w=nr-start.x; }
-      if(axes.ay===-1){ var ny2=Math.min(py, start.y+start.h-CROP_MIN); y=ny2; h=(start.y+start.h)-ny2; }
-      else if(axes.ay===1){ var nb=Math.max(py, start.y+CROP_MIN); h=nb-start.y; }
-      cropBox = { x:x, y:y, w:w, h:h };
-    }
+    var axes = CROP_HANDLE_AXES[mode];
+    var rect = cropStageEl.getBoundingClientRect();
+    var px = Math.max(0, Math.min(stageW, e.clientX-rect.left));
+    var py = Math.max(0, Math.min(stageH, e.clientY-rect.top));
+    var x=start.x, y=start.y, w=start.w, h=start.h;
+    if(axes.ax===-1){ var nx2=Math.min(px, start.x+start.w-CROP_MIN); x=nx2; w=(start.x+start.w)-nx2; }
+    else if(axes.ax===1){ var nr=Math.max(px, start.x+CROP_MIN); w=nr-start.x; }
+    if(axes.ay===-1){ var ny2=Math.min(py, start.y+start.h-CROP_MIN); y=ny2; h=(start.y+start.h)-ny2; }
+    else if(axes.ay===1){ var nb=Math.max(py, start.y+CROP_MIN); h=nb-start.y; }
+    cropBox = { x:x, y:y, w:w, h:h };
     renderCropBox();
   });
   box.addEventListener('pointerup', function(){ mode=null; });
