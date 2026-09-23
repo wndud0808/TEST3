@@ -376,25 +376,26 @@ function normalizeJob(raw){
   });
   return job;
 }
-function normalizeDay(raw){
-  var day = emptyDay();
-  if(raw && raw.lines){
-    [1,2,3,4].forEach(function(id){
-      var rawLine = raw.lines[id];
-      if(!rawLine || !rawLine.slots) return;
-      for(var i=0;i<4;i++){
-        day.lines[id].slots[i] = normalizeJob(rawLine.slots[i]);
-      }
-    });
-  }
-  return day;
-}
+/* Listen per-slot (16 refs/day) rather than one listener on the whole
+   day node. Firebase RTDB re-sends a listened-to node's entire content
+   on every change under it, and each job can carry several photos -
+   listening (and writing, see saveState) at the whole-day level meant
+   editing one checkpoint in one slot re-transferred every other slot's
+   photos too, on every single edit. Scoping to the slot that actually
+   changed keeps that re-transfer to just that one job. */
 function attachDayListener(dateStr){
   if(dayListeners[dateStr]) return;
   dayListeners[dateStr] = true;
-  fbdb.ref('days/'+dateStr).on('value', function(snap){
-    state.byDate[dateStr] = normalizeDay(snap.val());
-    if(dateStr===currentDateStr) render();
+  [1,2,3,4].forEach(function(lineId){
+    for(var slot=0; slot<4; slot++){
+      (function(lineId, slot){
+        fbdb.ref('days/'+dateStr+'/lines/'+lineId+'/slots/'+slot).on('value', function(snap){
+          if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
+          state.byDate[dateStr].lines[lineId].slots[slot] = normalizeJob(snap.val());
+          if(dateStr===currentDateStr) render();
+        });
+      })(lineId, slot);
+    }
   });
 }
 function attachDateIndexListener(){
@@ -408,8 +409,9 @@ function attachDateIndexListener(){
 }
 function getJob(lineId, slot){ return ensureDay(currentDateStr).lines[lineId].slots[slot]; }
 function setJob(lineId, slot, job){ ensureDay(currentDateStr).lines[lineId].slots[slot] = job; }
-function saveState(){
-  fbdb.ref('days/'+currentDateStr).set(state.byDate[currentDateStr]);
+function saveState(lineId, slot){
+  var job = state.byDate[currentDateStr].lines[lineId].slots[slot];
+  fbdb.ref('days/'+currentDateStr+'/lines/'+lineId+'/slots/'+slot).set(job);
   fbdb.ref('dateIndex/'+currentDateStr).set(true);
 }
 function onDateChange(v){
@@ -436,7 +438,7 @@ function changeItem(lineId, slot){ push({screen:'weight', lineId:lineId, slot:sl
 function chooseWeight(lineId, slot, w){ tempPick={lineId:lineId, slot:slot, weight:w}; push({screen:'product', lineId:lineId, slot:slot}); }
 function chooseProduct(lineId, slot, p){
   setJob(lineId, slot, emptyJob(tempPick.weight, p));
-  saveState();
+  saveState(lineId, slot);
   nav = nav.filter(function(n){ return n.screen!=='weight' && n.screen!=='product'; });
   push({screen:'tracking', lineId:lineId, slot:slot});
 }
@@ -452,7 +454,7 @@ function requestApproval(lineId, slot){
   if(!approvalReady(job)) return;
   job.status='pending_approval';
   job.requestedAt = new Date().toISOString();
-  saveState();
+  saveState(lineId, slot);
   render();
 }
 
@@ -539,7 +541,7 @@ function approveJob(lineId, slot){
   job.status='approved';
   job.approvedBy='ADMIN · QA팀';
   job.approvedAt = new Date().toISOString();
-  saveState();
+  saveState(lineId, slot);
   render();
 }
 
@@ -829,7 +831,7 @@ function savePhoto(){
     else if(key==='end') job.endAt = iso;
   }
   pendingFileData = null;
-  saveState();
+  saveState(lineId, slot);
   runOcrCheck(lineId, slot, key);
   goBack();
 }
@@ -838,7 +840,7 @@ function deletePhoto(){
   var cp = getJob(lineId, slot).checkpoints[key];
   cp.photo = null; cp.ocrText = null; cp.ocrMatch = null;
   pendingFileData = null;
-  saveState();
+  saveState(lineId, slot);
   renderPhotoScreen(lineId, slot, key);
 }
 
@@ -891,7 +893,7 @@ async function runOcrCheck(lineId, slot, key){
     var textDigits = ocrDigitsOnly(rawText);
     cp.ocrText = rawText || null;
     cp.ocrMatch = rawText ? (textDigits.indexOf(expectedDigits)>=0 ? 'match' : 'mismatch') : null;
-    saveState();
+    saveState(lineId, slot);
     render();
     try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
   }catch(e){
@@ -1276,7 +1278,7 @@ function setVisionCheck(lineId, slot, key, item, value){
   cp.vision = cp.vision || {};
   if(cp.vision[item]===value) delete cp.vision[item];
   else cp.vision[item] = value;
-  saveState();
+  saveState(lineId, slot);
   renderPhotoScreen(lineId, slot, key);
 }
 function renderPhotoScreen(lineId, slot, key){
