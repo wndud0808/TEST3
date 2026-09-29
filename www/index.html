@@ -238,6 +238,7 @@ input{font:inherit;color:inherit;}
     <div class="modal-overlay" id="view-overlay" hidden></div>
     <div class="modal-overlay" id="update-overlay" hidden></div>
     <div class="modal-overlay" id="photopick-overlay" hidden></div>
+    <div class="modal-overlay" id="confirm-overlay" hidden></div>
   </div>
 </div>
 
@@ -420,15 +421,38 @@ function onDateChange(v){
   if(v > todayStr()) v = todayStr();
   currentDateStr = v;
   nav = [{screen:'home'}];
+  syncHistory(true);
   render();
 }
 
 var nav = [{screen:'role'}];
 var tempPick = { lineId:null, slot:null, weight:null };
 
-function push(entry){ nav.push(entry); render(); }
-function goHome(){ nav = [{screen:'role'}]; render(); }
-function goBack(){ if(nav.length>1) nav.pop(); render(); }
+/* Keep browser/WebView history in lockstep with our own in-memory nav
+   stack, storing a full snapshot of nav in each history entry's state
+   rather than just a depth counter, so a popstate always restores the
+   exact previous screen regardless of how nav got there (push, filter,
+   or a hard reset). This is what makes back navigation - including the
+   Android hardware back button - reliable even in the rare case where
+   the Capacitor native bridge isn't available (e.g. right after using
+   the in-app web-content update, which briefly runs the page from a
+   different origin without capacitor.js loaded). goBack() itself just
+   asks the browser to go back; popstate is the only place nav actually
+   changes, so every "back" trigger - the app-bar arrow, Capacitor's
+   backButton event, or a raw swipe/gesture - stays consistent. */
+function syncHistory(replace){
+  var snapshot = JSON.parse(JSON.stringify(nav));
+  var state = { nav:snapshot };
+  if(replace) history.replaceState(state, '', location.href);
+  else history.pushState(state, '', location.href);
+}
+window.addEventListener('popstate', function(e){
+  if(e.state && e.state.nav){ nav = e.state.nav; render(); }
+});
+
+function push(entry){ nav.push(entry); syncHistory(false); render(); }
+function goHome(){ nav = [{screen:'role'}]; syncHistory(true); render(); }
+function goBack(){ if(nav.length>1) history.back(); }
 
 function openSlot(lineId, slot){
   var job = getJob(lineId, slot);
@@ -1276,13 +1300,36 @@ function renderTracking(lineId, slot){
   } else {
     var ready = approvalReady(job);
     actionHTML = '<button class="btn btn-primary" '+(ready?'':'disabled')+' onclick="openSignaturePad('+lineId+','+slot+')">결재 요청</button>'+
-      (ready ? '' : '<div class="hint">사진을 1장 이상 업로드하면 결재 요청을 할 수 있어요</div>');
+      (ready ? '' : '<div class="hint">사진을 1장 이상 업로드하면 결재 요청을 할 수 있어요</div>')+
+      '<button class="btn btn-outline" style="margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="confirmDeleteJob('+lineId+','+slot+')">품목 삭제 (잘못 선택함)</button>';
   }
   var actionbar = document.createElement('div');
   actionbar.className = 'actionbar';
   actionbar.id = 'actionbar';
   actionbar.innerHTML = actionHTML;
   document.querySelector('.phone').appendChild(actionbar);
+}
+
+function confirmDeleteJob(lineId, slot){
+  var job = getJob(lineId, slot);
+  document.getElementById('confirm-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>품목 삭제</h3>'+
+      '<div class="hint" style="margin:0;">'+job.product+' '+job.weight+' 항목을 삭제할까요? 촬영한 사진과 기록이 모두 사라지고 되돌릴 수 없어요.</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="document.getElementById(\'confirm-overlay\').hidden=true">취소</button>'+
+        '<button class="btn btn-primary" style="background:var(--danger);border-color:var(--danger);" onclick="deleteJob('+lineId+','+slot+')">삭제</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('confirm-overlay').hidden = false;
+}
+function deleteJob(lineId, slot){
+  document.getElementById('confirm-overlay').hidden = true;
+  setJob(lineId, slot, null);
+  saveState(lineId, slot);
+  nav.pop();
+  syncHistory(true);
+  render();
 }
 
 function setVisionCheck(lineId, slot, key, item, value){
@@ -1503,6 +1550,7 @@ function downloadNativeUpdate(){
   });
 })();
 
+syncHistory(true);
 render();
 checkForUpdate();
 nativeCheckForUpdate();
