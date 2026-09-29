@@ -148,10 +148,12 @@ input{font:inherit;color:inherit;}
 .tilehead{display:flex;align-items:baseline;gap:4px;flex:0 0 auto;padding:0 2px;}
 .tilenum{font-family:var(--font-mono);font-size:22px;font-weight:700;line-height:1;color:var(--text-primary);}
 .tilelabel{font-size:11px;color:var(--text-muted);}
+.tiledelete{margin-left:auto;font-size:11px;font-weight:600;color:var(--danger);padding:3px 8px;border-radius:999px;border:1px solid var(--danger);}
 .slotlist{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:6px;}
 .slotrow{flex:1;min-width:0;min-height:0;width:100%;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;font-weight:500;color:var(--text-primary);}
 .slotrow:hover{border-color:var(--primary);}
 .slotrow.empty{color:var(--text-muted);border-style:dashed;font-weight:400;}
+.slotrow-delete{border-color:var(--danger);background:var(--danger-bg);color:var(--danger);}
 .slotname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .slotdot{width:16px;height:16px;border-radius:50%;flex:0 0 auto;}
 .chev{flex:0 0 auto;color:var(--text-muted);}
@@ -421,6 +423,7 @@ function onDateChange(v){
   if(v > todayStr()) v = todayStr();
   currentDateStr = v;
   nav = [{screen:'home'}];
+  deleteModeLine = null;
   syncHistory(true);
   render();
 }
@@ -1218,18 +1221,29 @@ async function exportDayExcel(dateStr){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
 }
 
+var deleteModeLine = null;
+function toggleDeleteMode(lineId){
+  deleteModeLine = (deleteModeLine===lineId) ? null : lineId;
+  render();
+}
 function renderHome(){
   renderAppBar('소비기한 골든타임 일지', {showBack:true, showDate:!adminMode});
   var html = '<div class="homegrid">';
   [1,2,3,4].forEach(function(id){
     var slots = ensureDay(currentDateStr).lines[id].slots;
+    var deleting = deleteModeLine===id;
+    var deleteToggle = adminMode ? '' :
+      '<button class="tiledelete" onclick="toggleDeleteMode('+id+')">'+(deleting?'취소':'삭제')+'</button>';
     html += '<div class="linetile">'+
-      '<div class="tilehead"><span class="tilenum">'+id+'</span><span class="tilelabel">호기</span></div>'+
+      '<div class="tilehead"><span class="tilenum">'+id+'</span><span class="tilelabel">호기</span>'+deleteToggle+'</div>'+
       '<div class="slotlist">'+
         slots.map(function(job, i){
           var label = job ? (job.product+' '+job.weight) : '품목선택 '+(i+1);
           var dot = job ? '<span class="slotdot" style="background:'+slotDotColor(job)+'"></span>' : '';
-          if(!job && adminMode){
+          if(deleting && job){
+            return '<button class="slotrow slotrow-delete" onclick="confirmDeleteJob('+id+','+i+')"><span class="slotname">'+label+'</span>'+dot+'</button>';
+          }
+          if(!job && (adminMode || deleting)){
             return '<div class="slotrow empty"><span class="slotname">'+label+'</span></div>';
           }
           return '<button class="slotrow'+(job?'':' empty')+'" onclick="openSlot('+id+','+i+')"><span class="slotname">'+label+'</span>'+dot+'</button>';
@@ -1301,7 +1315,7 @@ function renderTracking(lineId, slot){
     var ready = approvalReady(job);
     actionHTML = '<button class="btn btn-primary" '+(ready?'':'disabled')+' onclick="openSignaturePad('+lineId+','+slot+')">결재 요청</button>'+
       (ready ? '' : '<div class="hint">사진을 1장 이상 업로드하면 결재 요청을 할 수 있어요</div>')+
-      '<button class="btn btn-outline" style="margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="confirmDeleteJob('+lineId+','+slot+')">품목 삭제 (잘못 선택함)</button>';
+      '<button class="btn btn-outline" style="margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="confirmDeleteJob('+lineId+','+slot+')">삭제</button>';
   }
   var actionbar = document.createElement('div');
   actionbar.className = 'actionbar';
@@ -1327,8 +1341,12 @@ function deleteJob(lineId, slot){
   document.getElementById('confirm-overlay').hidden = true;
   setJob(lineId, slot, null);
   saveState(lineId, slot);
-  nav.pop();
-  syncHistory(true);
+  deleteModeLine = null;
+  var top = nav[nav.length-1];
+  if(top && top.screen==='tracking' && top.lineId===lineId && top.slot===slot){
+    nav.pop();
+    syncHistory(true);
+  }
   render();
 }
 
