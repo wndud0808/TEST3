@@ -1218,7 +1218,10 @@ async function exportDayExcel(dateStr){
   var a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+  /* Mobile browsers start the actual download well after click(), and a
+     large (photo-heavy) workbook takes longer - revoking too soon makes
+     the download fail with a "check your connection" network error. */
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
 }
 
 var deleteModeLine = null;
