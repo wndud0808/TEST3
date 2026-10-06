@@ -1495,7 +1495,8 @@ function checkForUpdate(){
         .then(function(r){ return r.json(); })
         .then(function(remote){
           if(remote && local && remote.version && local.version && remote.version!==local.version){
-            showUpdatePopup();
+            if(webUpdateOptedIn()) applyUpdate();
+            else showUpdatePopup();
           }
         });
     })
@@ -1513,7 +1514,16 @@ function showUpdatePopup(){
     '</div>';
   document.getElementById('update-overlay').hidden = false;
 }
+/* The update only swaps the page for the live Pages copy; the installed
+   APK still launches from its bundled (older) files, so without
+   remembering the choice the popup came back on every cold start. Once
+   the user has accepted an update, later launches load the latest copy
+   directly instead of asking again. */
+function webUpdateOptedIn(){
+  try{ return localStorage.getItem('autoWebUpdate')==='1'; }catch(e){ return false; }
+}
 function applyUpdate(){
+  try{ localStorage.setItem('autoWebUpdate','1'); }catch(e){}
   window.location.href = LATEST_URL+'?t='+Date.now();
 }
 
