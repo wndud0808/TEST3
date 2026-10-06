@@ -1126,6 +1126,25 @@ async function addCenteredImage(wb, ws, dataUri, colIndex0, rowIndex0, cellWpx, 
 
 async function exportDayExcel(dateStr){
   if(typeof ExcelJS==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'); return; }
+
+  /* Desktop Chrome/Edge: ask for the save location up front (this must
+     happen straight from the click, before any await) and write the file
+     directly, instead of triggering a blob: link download, which Chrome
+     was failing with a "network error". */
+  var isNativeApp = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem);
+  var fileHandle = null;
+  if(!isNativeApp && !window.claude && window.showSaveFilePicker){
+    try{
+      fileHandle = await window.showSaveFilePicker({
+        suggestedName: dateStr+'_golden_time.xlsx',
+        types: [{ description:'Excel 통합 문서', accept:{ 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx'] } }]
+      });
+    }catch(e){
+      if(e && e.name==='AbortError') return;
+      fileHandle = null;
+    }
+  }
+
   var resp = await fetch('./template.xlsx');
   if(!resp.ok){ alert('엑셀 템플릿을 불러오지 못했어요.'); return; }
   var templateBuffer = await resp.arrayBuffer();
@@ -1207,6 +1226,18 @@ async function exportDayExcel(dateStr){
       await downloads.save({ filename:filename, data:blob });
     }catch(e){
       if(e && e.code==='declined') return;
+      alert('엑셀 저장에 실패했어요: '+(e && e.message ? e.message : e));
+    }
+    return;
+  }
+
+  /* desktop browser with a chosen save location */
+  if(fileHandle){
+    try{
+      var writable = await fileHandle.createWritable();
+      await writable.write(buffer);
+      await writable.close();
+    }catch(e){
       alert('엑셀 저장에 실패했어요: '+(e && e.message ? e.message : e));
     }
     return;
