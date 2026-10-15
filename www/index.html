@@ -98,6 +98,10 @@ input{font:inherit;color:inherit;}
 .roletitle{font-size:16px;font-weight:500;color:var(--text-primary);}
 .rolebtns{width:100%;display:flex;flex-direction:column;gap:12px;}
 .rolebtn{width:100%;padding:20px;border-radius:16px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
+.menugrid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.menucard{min-width:0;min-height:300px;border-radius:28px;border:0.5px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;}
+.menucard:hover{border-color:var(--primary);}
+.menucard-title{font-size:17px;font-weight:700;line-height:1.4;color:var(--text-primary);word-break:keep-all;}
 .rolebtn:hover{border-color:var(--primary);}
 .rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
 .textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
@@ -422,7 +426,7 @@ function onDateChange(v){
   if(!v) return;
   if(v > todayStr()) v = todayStr();
   currentDateStr = v;
-  nav = [{screen:'home'}];
+  nav = [{screen:'role'}, {screen:'menu'}, {screen:'home'}];
   deleteModeLine = null;
   syncHistory(true);
   render();
@@ -1011,17 +1015,41 @@ var adminMode = false;
 var adminCalYear = new Date().getFullYear();
 var adminCalMonth = new Date().getMonth()+1;
 
+var menuRole = 'user';
+
 function renderRole(){
   renderAppBar('', {showBack:false});
   var html =
     '<div class="rolescreen">'+
-      '<div class="rolebrand"><span class="ciword">DAESANG</span><div class="roletitle">소비기한 골든타임 일지</div></div>'+
+      '<div class="rolebrand"><span class="ciword">DAESANG</span><div class="roletitle">현장 기록 앱</div></div>'+
       '<div class="rolebtns">'+
-        '<button class="rolebtn" onclick="adminMode=false; push({screen:\'home\'})">USER<span class="sub">현장 담당자용 · 로그인 없이 시작</span></button>'+
+        '<button class="rolebtn" onclick="menuRole=\'user\'; adminMode=false; push({screen:\'menu\'})">USER<span class="sub">현장 담당자용 · 로그인 없이 시작</span></button>'+
         '<button class="rolebtn" onclick="push({screen:\'adminLogin\'})">ADMIN<span class="sub">관리자용 · 비밀번호 필요</span></button>'+
       '</div>'+
     '</div>';
   document.getElementById('screen-root').innerHTML = html;
+}
+function renderMenu(){
+  renderAppBar('업무 선택', {showBack:true});
+  var html =
+    '<div class="menugrid">'+
+      '<button class="menucard" onclick="push({screen:\'washChecklist\'})">'+
+        '<span class="menucard-title">세척소독<br>체크리스트</span>'+
+      '</button>'+
+      '<button class="menucard" onclick="openGoldenTimeLog()">'+
+        '<span class="menucard-title">소비기한<br>골든타임 일지</span>'+
+      '</button>'+
+    '</div>';
+  document.getElementById('screen-root').innerHTML = html;
+}
+function openGoldenTimeLog(){
+  if(menuRole==='admin') push({screen:'adminCalendar'});
+  else { adminMode=false; push({screen:'home'}); }
+}
+function renderWashChecklist(){
+  renderAppBar('세척소독 체크리스트', {showBack:true});
+  document.getElementById('screen-root').innerHTML =
+    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">세척소독 체크리스트는 준비 중이에요.</div>';
 }
 function renderAdminLogin(){
   renderAppBar('관리자 로그인', {showBack:true});
@@ -1038,7 +1066,7 @@ function renderAdminLogin(){
 }
 function submitAdminPw(){
   var val = document.getElementById('admin-pw').value;
-  if(val===ADMIN_PASSWORD){ push({screen:'adminCalendar'}); }
+  if(val===ADMIN_PASSWORD){ menuRole='admin'; push({screen:'menu'}); }
   else{ document.getElementById('admin-pw-err').textContent = '비밀번호가 올바르지 않습니다.'; }
 }
 
@@ -1506,6 +1534,8 @@ function render(){
   if(old) old.remove();
   document.getElementById('screen-root').classList.toggle('tight', top.screen==='home');
   if(top.screen==='role') renderRole();
+  else if(top.screen==='menu') renderMenu();
+  else if(top.screen==='washChecklist') renderWashChecklist();
   else if(top.screen==='adminLogin') renderAdminLogin();
   else if(top.screen==='adminCalendar') renderAdminCalendar();
   else if(top.screen==='home') renderHome();
