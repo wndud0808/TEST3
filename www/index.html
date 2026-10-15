@@ -122,7 +122,7 @@ button.menubar:hover{border-color:var(--primary);}
 
 /* view-only photo lightbox */
 .viewsheet{width:100%;background:transparent;padding:0 16px 24px;display:flex;flex-direction:column;gap:12px;align-items:center;}
-.viewsheet img{width:100%;border-radius:14px;background:var(--surface);}
+.viewsheet img{width:100%;max-height:72vh;object-fit:contain;border-radius:14px;background:var(--surface);}
 .viewsheet .btn{max-width:200px;}
 .viewsheet .btn-outline{background:var(--surface);}
 .appbar{
@@ -491,6 +491,7 @@ function chooseProduct(lineId, slot, p){
 function openCheckpoint(lineId, slot, key){
   var job = getJob(lineId, slot);
   if(key!=='start' && !job.startAt) return;
+  pendingFileData = null; pendingOriginal = null;
   push({screen:'photo', lineId:lineId, slot:slot, key:key});
 }
 function openApproval(lineId, slot){ push({screen:'approval', lineId:lineId, slot:slot}); }
@@ -672,8 +673,81 @@ var CROP_HANDLE_AXES = {
   bl:{ax:-1,ay:1}, b:{ax:0,ay:1}, br:{ax:1,ay:1}
 };
 var cropImg = null;
+var cropSourceUri = null;
+var cropRestoreBox = null;
+var cropNotice = null;
+var pendingOriginal = null;
 var cropStageEl = null;
 var cropBox = { x:0, y:0, w:0, h:0 };
+
+/* The original (pre-crop) photo is kept only in this device's IndexedDB,
+   never synced to Firebase, so "기존 사진 수정하기" can bring the crop
+   back without adding to the shared database's download usage. */
+var origDbHandle = null;
+function origDb(){
+  return new Promise(function(resolve){
+    if(origDbHandle) return resolve(origDbHandle);
+    try{
+      var rq = indexedDB.open('glt-originals', 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore('orig'); };
+      rq.onsuccess = function(){ origDbHandle = rq.result; resolve(origDbHandle); };
+      rq.onerror = function(){ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+}
+function origKey(dateStr, lineId, slot, key){ return dateStr+'|'+lineId+'|'+slot+'|'+key; }
+function origPut(k, val){
+  return origDb().then(function(db){
+    if(!db) return;
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction('orig','readwrite');
+        tx.objectStore('orig').put(val, k);
+        tx.oncomplete = resolve; tx.onerror = resolve; tx.onabort = resolve;
+      }catch(e){ resolve(); }
+    });
+  });
+}
+function origGet(k){
+  return origDb().then(function(db){
+    if(!db) return null;
+    return new Promise(function(resolve){
+      try{
+        var rq = db.transaction('orig','readonly').objectStore('orig').get(k);
+        rq.onsuccess = function(){ resolve(rq.result || null); };
+        rq.onerror = function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    });
+  });
+}
+function origDelete(k){
+  return origDb().then(function(db){
+    if(!db) return;
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction('orig','readwrite');
+        tx.objectStore('orig').delete(k);
+        tx.oncomplete = resolve; tx.onerror = resolve; tx.onabort = resolve;
+      }catch(e){ resolve(); }
+    });
+  });
+}
+function origPrune(){
+  var cutoff = Date.now() - 14*24*60*60*1000;
+  origDb().then(function(db){
+    if(!db) return;
+    try{
+      var tx = db.transaction('orig','readwrite');
+      var store = tx.objectStore('orig');
+      store.openCursor().onsuccess = function(e){
+        var cur = e.target.result;
+        if(!cur) return;
+        if(!cur.value || !cur.value.savedAt || cur.value.savedAt < cutoff) cur.delete();
+        cur.continue();
+      };
+    }catch(e){}
+  });
+}
 
 function renderCropBox(){
   var box = document.getElementById('cropbox');
@@ -685,6 +759,16 @@ function renderCropBox(){
 function initCropBox(){
   cropStageEl = document.getElementById('cropstage');
   var stageW = cropStageEl.clientWidth, stageH = cropStageEl.clientHeight;
+  if(cropRestoreBox){
+    var rb = cropRestoreBox;
+    var rw = Math.max(CROP_MIN, Math.min(stageW, rb.w*stageW));
+    var rh = Math.max(CROP_MIN, Math.min(stageH, rb.h*stageH));
+    var rx = Math.max(0, Math.min(stageW-rw, rb.x*stageW));
+    var ry = Math.max(0, Math.min(stageH-rh, rb.y*stageH));
+    cropBox = { x:rx, y:ry, w:rw, h:rh };
+    renderCropBox();
+    return;
+  }
   var w = stageW*0.86, h = stageH*0.86;
   cropBox = { x:(stageW-w)/2, y:(stageH-h)/2, w:w, h:h };
   renderCropBox();
@@ -725,10 +809,12 @@ function openCropSheet(){
   var html =
     '<div class="sheet">'+
       '<h3>사진 자르기</h3>'+
+      (cropNotice ? '<div class="hint" style="margin:0;">'+cropNotice+'</div>' : '')+
       '<div class="cropstage" id="cropstage">'+
         '<img id="cropimg" src="'+cropImg.src+'" alt="">'+
         '<div class="cropbox" id="cropbox">'+handlesHTML+'</div>'+
       '</div>'+
+      '<button class="btn btn-outline" onclick="rotateCropSource()">사진 90° 회전</button>'+
       '<div class="btnrow">'+
         '<button class="btn btn-outline" onclick="closeCropSheet()">취소</button>'+
         '<button class="btn btn-primary" onclick="confirmCrop()">자르기 완료</button>'+
@@ -743,7 +829,7 @@ function openCropSheet(){
 }
 function closeCropSheet(){
   document.getElementById('crop-overlay').hidden = true;
-  cropImg = null;
+  cropImg = null; cropSourceUri = null; cropRestoreBox = null; cropNotice = null;
 }
 function renderCropToDataURL(sx, sy, sw, sh, maxDim, quality){
   var outW = sw, outH = sh;
@@ -755,28 +841,97 @@ function renderCropToDataURL(sx, sy, sw, sh, maxDim, quality){
   return canvas.toDataURL('image/jpeg', quality);
 }
 function confirmCrop(){
-  var scale = cropImg.naturalWidth / cropStageEl.clientWidth;
+  var stageW = cropStageEl.clientWidth, stageH = cropStageEl.clientHeight;
+  var scale = cropImg.naturalWidth / stageW;
   var sx = cropBox.x*scale, sy = cropBox.y*scale, sw = cropBox.w*scale, sh = cropBox.h*scale;
   pendingFileData = renderCropToDataURL(sx, sy, sw, sh, 1280, 0.85);
+  pendingOriginal = {
+    uri: cropSourceUri,
+    box: { x:cropBox.x/stageW, y:cropBox.y/stageH, w:cropBox.w/stageW, h:cropBox.h/stageH }
+  };
   document.getElementById('crop-overlay').hidden = true;
-  cropImg = null;
+  cropImg = null; cropSourceUri = null; cropRestoreBox = null; cropNotice = null;
   renderPhotoScreen(currentLineId(), currentSlot(), currentKey());
 }
 
+/* Decode the picked file with its EXIF rotation applied once and bake it
+   into the pixels (also capped at 2400px). Everything after this - the
+   crop stage, the crop math, the saved photo - then works on plain
+   upright pixels instead of each step interpreting the rotation tag on
+   its own, which is what made photos taken with the phone held sideways
+   come out rotated/zoomed. */
+function fileToUprightDataUri(file){
+  var MAXD = 2400;
+  function render(src, w, h){
+    var scale = Math.min(1, MAXD/Math.max(w, h));
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w*scale)); c.height = Math.max(1, Math.round(h*scale));
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+  function viaImage(){
+    return new Promise(function(resolve){
+      var reader = new FileReader();
+      reader.onload = function(e){
+        var img = new Image();
+        img.onload = function(){ resolve(render(img, img.naturalWidth, img.naturalHeight)); };
+        img.onerror = function(){ resolve(null); };
+        img.src = e.target.result;
+      };
+      reader.onerror = function(){ resolve(null); };
+      reader.readAsDataURL(file);
+    });
+  }
+  if(window.createImageBitmap){
+    return createImageBitmap(file, { imageOrientation:'from-image' }).then(function(bmp){
+      var uri = render(bmp, bmp.width, bmp.height);
+      if(bmp.close) bmp.close();
+      return uri;
+    }).catch(viaImage);
+  }
+  return viaImage();
+}
+function loadCropSource(uri, box, notice){
+  var img = new Image();
+  img.onload = function(){
+    cropImg = img; cropSourceUri = uri; cropRestoreBox = box || null; cropNotice = notice || null;
+    openCropSheet();
+  };
+  img.src = uri;
+}
 function handleFile(input){
   var file = input.files && input.files[0];
   if(!file) return;
-  var reader = new FileReader();
-  reader.onload = function(e){
-    var img = new Image();
-    img.onload = function(){
-      cropImg = img;
-      openCropSheet();
-    };
-    img.src = e.target.result;
-  };
   input.value = '';
-  reader.readAsDataURL(file);
+  fileToUprightDataUri(file).then(function(uri){
+    if(!uri){ alert('사진을 불러오지 못했어요. 다시 시도해 주세요.'); return; }
+    loadCropSource(uri, null, null);
+  });
+}
+function rotateCropSource(){
+  if(!cropImg) return;
+  var w = cropImg.naturalWidth, h = cropImg.naturalHeight;
+  var c = document.createElement('canvas');
+  c.width = h; c.height = w;
+  var ctx = c.getContext('2d');
+  ctx.translate(c.width/2, c.height/2);
+  ctx.rotate(Math.PI/2);
+  ctx.drawImage(cropImg, -w/2, -h/2);
+  loadCropSource(c.toDataURL('image/jpeg', 0.9), null, cropNotice);
+}
+async function editExistingPhoto(){
+  var lineId = currentLineId(), slot = currentSlot(), key = currentKey();
+  var cp = getJob(lineId, slot).checkpoints[key];
+  if(pendingFileData && pendingOriginal){
+    loadCropSource(pendingOriginal.uri, pendingOriginal.box, null);
+    return;
+  }
+  var saved = await origGet(origKey(currentDateStr, lineId, slot, key));
+  if(saved && saved.uri){
+    loadCropSource(saved.uri, saved.box, null);
+  } else if(cp.photo && cp.photo.indexOf('data:')===0){
+    loadCropSource(cp.photo, null, '원본 사진이 이 기기에 없어서, 지금 사진 안에서만 다시 자를 수 있어요.');
+  }
 }
 
 function fmtAmPmLabel(h24, m){
@@ -876,7 +1031,10 @@ function savePhoto(){
     if(key==='start') job.startAt = iso;
     else if(key==='end') job.endAt = iso;
   }
-  pendingFileData = null;
+  if(pendingFileData && pendingOriginal){
+    origPut(origKey(currentDateStr, lineId, slot, key), { uri:pendingOriginal.uri, box:pendingOriginal.box, savedAt:Date.now() });
+  }
+  pendingFileData = null; pendingOriginal = null;
   saveState(lineId, slot);
   runOcrCheck(lineId, slot, key);
   goBack();
@@ -885,7 +1043,8 @@ function deletePhoto(){
   var lineId = currentLineId(), slot = currentSlot(), key = currentKey();
   var cp = getJob(lineId, slot).checkpoints[key];
   cp.photo = null; cp.ocrText = null; cp.ocrMatch = null;
-  pendingFileData = null;
+  pendingFileData = null; pendingOriginal = null;
+  origDelete(origKey(currentDateStr, lineId, slot, key));
   saveState(lineId, slot);
   renderPhotoScreen(lineId, slot, key);
 }
@@ -1484,6 +1643,7 @@ function renderPhotoScreen(lineId, slot, key){
     frame +
     (locked ? '<div class="hint" style="margin:0;">결재 완료된 배치예요 · 사진만 다시 등록할 수 있어요</div>' : '') +
     '<input type="file" id="cp-file-input" accept="image/*" style="display:none" onchange="handleFile(this)">'+
+    (photo ? '<button class="btn btn-outline" style="margin-bottom:10px;" onclick="editExistingPhoto()">기존 사진 수정하기</button>' : '')+
     '<button class="btn btn-outline" onclick="triggerFilePick()">'+(photo||isSeedOnly?'다시 촬영/선택':'사진 선택')+'</button>'+
     timeRow +
     ocrRow +
@@ -1655,6 +1815,7 @@ function downloadNativeUpdate(){
 })();
 
 syncHistory(true);
+origPrune();
 render();
 checkForUpdate();
 nativeCheckForUpdate();
