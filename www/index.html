@@ -15,6 +15,10 @@
   --danger:#B5402B; --danger-bg:#FAEAE6;
   --success:#276B45; --success-bg:#E6F2EA;
   --shadow:0 20px 45px -25px rgba(15,40,35,0.35);
+  --wash-bg:#F2F0F8; --wash-surface:#FFFFFF; --wash-surface-2:#E9E5F5;
+  --wash-border:#D8D2EA; --wash-border-strong:#BFB6DB;
+  --wash-text-primary:#1D1A2E; --wash-text-secondary:#5C5677; --wash-text-muted:#948DAE;
+  --wash-primary:#5B4B9A; --wash-primary-hover:#493B82; --wash-on-primary:#F7F5FC;
   --font-sans:'Noto Sans KR','Apple SD Gothic Neo',sans-serif;
   --font-mono:'JetBrains Mono',ui-monospace,monospace;
 }
@@ -28,6 +32,10 @@
     --danger:#E2695A; --danger-bg:#35201A;
     --success:#6FCB98; --success-bg:#163224;
     --shadow:0 20px 45px -25px rgba(0,0,0,0.6);
+    --wash-bg:#100E1A; --wash-surface:#1A1827; --wash-surface-2:#232035;
+    --wash-border:#34304B; --wash-border-strong:#484262;
+    --wash-text-primary:#EEEBF8; --wash-text-secondary:#B2ABCC; --wash-text-muted:#837CA2;
+    --wash-primary:#A99DE8; --wash-primary-hover:#BEB4F1; --wash-on-primary:#1A1433;
   }
 }
 :root[data-theme="dark"]{
@@ -39,6 +47,17 @@
   --danger:#E2695A; --danger-bg:#35201A;
   --success:#6FCB98; --success-bg:#163224;
   --shadow:0 20px 45px -25px rgba(0,0,0,0.6);
+  --wash-bg:#100E1A; --wash-surface:#1A1827; --wash-surface-2:#232035;
+  --wash-border:#34304B; --wash-border-strong:#484262;
+  --wash-text-primary:#EEEBF8; --wash-text-secondary:#B2ABCC; --wash-text-muted:#837CA2;
+  --wash-primary:#A99DE8; --wash-primary-hover:#BEB4F1; --wash-on-primary:#1A1433;
+}
+/* 세척소독 체크리스트 screens: same layout, purple tone instead of mint */
+body.theme-wash{
+  --bg:var(--wash-bg); --surface:var(--wash-surface); --surface-2:var(--wash-surface-2);
+  --border:var(--wash-border); --border-strong:var(--wash-border-strong);
+  --text-primary:var(--wash-text-primary); --text-secondary:var(--wash-text-secondary); --text-muted:var(--wash-text-muted);
+  --primary:var(--wash-primary); --primary-hover:var(--wash-primary-hover); --on-primary:var(--wash-on-primary);
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -99,9 +118,11 @@ input{font:inherit;color:inherit;}
 .rolebtns{width:100%;display:flex;flex-direction:column;gap:12px;}
 .rolebtn{width:100%;padding:20px;border-radius:16px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
 .menulist{display:flex;flex-direction:column;gap:12px;}
-.menubar{width:100%;min-height:64px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
+.menubar{width:100%;min-height:64px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);word-break:keep-all;text-wrap:balance;}
 button.menubar:hover{border-color:var(--primary);}
 .menubar.soon{background:transparent;border-style:dashed;color:var(--text-muted);font-weight:400;}
+.menubar.wash{background:var(--wash-surface-2);border-color:var(--wash-border-strong);color:var(--wash-text-primary);}
+button.menubar.wash:hover{border-color:var(--wash-primary);}
 .rolebtn:hover{border-color:var(--primary);}
 .rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
 .textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
@@ -133,7 +154,7 @@ button.menubar:hover{border-color:var(--primary);}
 .appbar .backbtn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:0 0 auto;color:var(--text-secondary);}
 .appbar .backbtn:hover{background:var(--surface-2);}
 .appbar .backbtn.hidden{visibility:hidden;}
-.appbar h1{font-size:16px;font-weight:500;margin:0;flex:1;letter-spacing:-0.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.appbar h1{font-size:16px;font-weight:500;margin:0;flex:1;letter-spacing:-0.01em;line-height:1.3;min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:keep-all;}
 .appbar .rightaction{font-size:13px;font-weight:500;color:var(--primary);padding:6px 10px;border-radius:999px;flex:0 0 auto;}
 .appbar .rightaction:hover{background:var(--surface-2);}
 .ciword{font-weight:700;letter-spacing:0.02em;color:var(--text-secondary);}
@@ -1189,6 +1210,7 @@ var adminCalYear = new Date().getFullYear();
 var adminCalMonth = new Date().getMonth()+1;
 
 var menuRole = 'user';
+var GT_LOG_NAME = '소비기한 골든타임일지 & 영상검출기 체크리스트';
 
 function renderRole(){
   renderAppBar('', {showBack:false});
@@ -1207,8 +1229,8 @@ function renderMenu(){
   var soon = '<div class="menubar soon">준비중</div>';
   var html =
     '<div class="menulist">'+
-      '<button class="menubar" onclick="openGoldenTimeLog()">소비기한 골든타임 일지</button>'+
-      '<button class="menubar" onclick="push({screen:\'washChecklist\'})">세척소독 체크리스트</button>'+
+      '<button class="menubar" onclick="openGoldenTimeLog()">'+GT_LOG_NAME+'</button>'+
+      '<button class="menubar wash" onclick="push({screen:\'washChecklist\'})">세척소독 체크리스트</button>'+
       soon+soon+soon+soon+
     '</div>';
   document.getElementById('screen-root').innerHTML = html;
@@ -1460,7 +1482,7 @@ function toggleDeleteMode(lineId){
   render();
 }
 function renderHome(){
-  renderAppBar('소비기한 골든타임 일지', {showBack:true, showDate:!adminMode});
+  renderAppBar(GT_LOG_NAME, {showBack:true, showDate:!adminMode});
   var html = '<div class="homegrid">';
   [1,2,3,4].forEach(function(id){
     var slots = ensureDay(currentDateStr).lines[id].slots;
@@ -1705,6 +1727,7 @@ function render(){
   var old = document.getElementById('actionbar');
   if(old) old.remove();
   document.getElementById('screen-root').classList.toggle('tight', top.screen==='home');
+  document.body.classList.toggle('theme-wash', top.screen.indexOf('wash')===0);
   if(top.screen==='role') renderRole();
   else if(top.screen==='menu') renderMenu();
   else if(top.screen==='washChecklist') renderWashChecklist();
