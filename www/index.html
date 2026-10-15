@@ -98,10 +98,10 @@ input{font:inherit;color:inherit;}
 .roletitle{font-size:16px;font-weight:500;color:var(--text-primary);}
 .rolebtns{width:100%;display:flex;flex-direction:column;gap:12px;}
 .rolebtn{width:100%;padding:20px;border-radius:16px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
-.menugrid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.menucard{min-width:0;min-height:300px;border-radius:28px;border:0.5px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;}
-.menucard:hover{border-color:var(--primary);}
-.menucard-title{font-size:17px;font-weight:700;line-height:1.4;color:var(--text-primary);word-break:keep-all;}
+.menulist{display:flex;flex-direction:column;gap:12px;}
+.menubar{width:100%;min-height:64px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;font-size:16px;font-weight:700;color:var(--text-primary);}
+button.menubar:hover{border-color:var(--primary);}
+.menubar.soon{background:transparent;border-style:dashed;color:var(--text-muted);font-weight:400;}
 .rolebtn:hover{border-color:var(--primary);}
 .rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
 .textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
@@ -228,6 +228,20 @@ input{font:inherit;color:inherit;}
 .minigrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
 .minithumb{aspect-ratio:1/1;border-radius:8px;background:var(--surface);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--success);position:relative;overflow:hidden;}
 .minithumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+
+/* Wide screens (tablet landscape / desktop): use the width instead of a
+   phone-sized column. The home grid spreads the four lines side by side;
+   every other screen keeps a readable centered column. */
+@media (min-width:720px){
+  .page{padding:1rem;}
+  .phone{max-width:1100px;min-height:max(520px, calc(100vh - 2rem));}
+  .content > *{width:100%;max-width:640px;margin-left:auto;margin-right:auto;}
+  .content.tight > .homegrid{max-width:none;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr;}
+  .actionbar > *{max-width:640px;margin-left:auto;margin-right:auto;}
+  .modal-overlay{justify-content:center;}
+  .sheet{max-width:640px;}
+  .viewsheet{max-width:720px;}
+}
 </style>
 </head>
 <body>
@@ -1031,14 +1045,12 @@ function renderRole(){
 }
 function renderMenu(){
   renderAppBar('업무 선택', {showBack:true});
+  var soon = '<div class="menubar soon">준비중</div>';
   var html =
-    '<div class="menugrid">'+
-      '<button class="menucard" onclick="push({screen:\'washChecklist\'})">'+
-        '<span class="menucard-title">세척소독<br>체크리스트</span>'+
-      '</button>'+
-      '<button class="menucard" onclick="openGoldenTimeLog()">'+
-        '<span class="menucard-title">소비기한<br>골든타임 일지</span>'+
-      '</button>'+
+    '<div class="menulist">'+
+      '<button class="menubar" onclick="openGoldenTimeLog()">소비기한 골든타임 일지</button>'+
+      '<button class="menubar" onclick="push({screen:\'washChecklist\'})">세척소독 체크리스트</button>'+
+      soon+soon+soon+soon+
     '</div>';
   document.getElementById('screen-root').innerHTML = html;
 }
