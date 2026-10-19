@@ -129,6 +129,27 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .washline:hover{border-color:var(--primary);}
 .washline-num{font-family:var(--font-mono);font-size:48px;font-weight:700;line-height:1;color:var(--text-primary);}
 .washline-label{font-size:14px;color:var(--text-secondary);}
+
+/* 당류 CIP 체크리스트 */
+.cipweek{display:flex;align-items:center;justify-content:space-between;}
+.cipweek-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
+.cipweek-btn:hover{background:var(--surface-2);}
+.cipweek-btn:disabled{opacity:0.3;cursor:default;}
+.cipweek-title{font-family:var(--font-mono);font-size:15px;font-weight:500;}
+.cipdays{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;}
+.cipday{min-width:0;padding:8px 0;border-radius:12px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:13px;font-weight:700;color:var(--text-secondary);display:flex;flex-direction:column;gap:2px;}
+.cipday span{font-family:var(--font-mono);font-size:11px;font-weight:400;}
+.cipday.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary);}
+.cipstep{background:var(--surface-2);border:0.5px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.cipstep-top{display:flex;align-items:center;gap:8px;}
+.cipstep-n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--surface);border:0.5px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;font-weight:700;}
+.cipstep-name{font-size:14px;font-weight:700;}
+.cipstep-meta{font-size:12px;color:var(--text-secondary);}
+.cipstep-cycle{font-size:11.5px;color:var(--text-muted);}
+.cipox{display:flex;gap:8px;margin-top:4px;}
+.cipox .btn{padding:8px 0;}
+.cipph{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;}
+.cipph-limit{font-size:12px;color:var(--text-muted);}
 .rolebtn:hover{border-color:var(--primary);}
 .rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
 .textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
@@ -1251,17 +1272,209 @@ function renderWashChecklist(){
     '<div class="eyebrow">호기 선택</div>'+
     '<div class="washlines">'+
       [1,2,3,4].map(function(id){
-        return '<button class="washline" onclick="push({screen:\'washLine\',lineId:'+id+'})">'+
+        return '<button class="washline" onclick="openWashLine('+id+')">'+
           '<span class="washline-num">'+id+'</span><span class="washline-label">호기</span></button>';
       }).join('')+
     '</div>';
 }
+function openWashLine(lineId){
+  if(lineId<=2) openWashCip(lineId);
+  else push({screen:'washLine', lineId:lineId});
+}
 function renderWashLine(lineId){
   renderAppBar(lineId+'호기 · 세척소독 체크리스트', {showBack:true});
-  /* 3,4호기 are not built yet; 1,2호기 get their real content next. */
-  var msg = lineId>=3 ? '준비중' : lineId+'호기 세척소독 체크리스트는 준비 중이에요.';
   document.getElementById('screen-root').innerHTML =
-    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">'+msg+'</div>';
+    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">준비중</div>';
+}
+
+/* ---- 당류 CIP 체크리스트 (weekly, per line) ---- */
+var CIP_DAYS = ['월','화','수','목','금'];
+var CIP_PH_LIMIT = 7.5;
+var CIP_STEPS = [
+  { sec:'온수', items:[
+    { key:'h1', n:1, name:'온수 CIP(3회)', conc:'-', temp:'70 이상', time:'-', zone:'서비스TK', cycle:'작업 시작 전 / 품목교체시 / 작업 종료 후' },
+    { key:'h2', n:2, name:'알코올 소독', conc:'70', temp:'-', time:'10분', zone:'충전기', cycle:'온수 CIP 종료 후' },
+    { key:'h3', n:3, name:'제품 퍼지 및 QA팀 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'생산 시작 전' },
+    { key:'h4', n:4, name:'온수 CIP', conc:'-', temp:'70 이상', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' },
+    { key:'h5', n:5, name:'건조 및 알코올 소독', conc:'70', temp:'-', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' }
+  ]},
+  { sec:'가성', items:[
+    { key:'c1', n:1, name:'가성 CIP(수산화나트륨)', conc:'1.5', temp:'70 이상', time:'10분', zone:'충전기', cycle:'주차 시작일 / 사과올리고당 시작 전, 후' },
+    { key:'c2', n:2, name:'온수 CIP(2회)', conc:'-', temp:'70 이상', time:'10분', zone:'충전기', cycle:'가성CIP 종료 후' },
+    { key:'c3', n:3, name:'pH 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'온수 CIP 종료 후', ph:true },
+    { key:'c4', n:4, name:'알코올 소독', conc:'70', temp:'-', time:'10분', zone:'충전기', cycle:'pH 확인 후' },
+    { key:'c5', n:5, name:'제품 퍼지 및 QA팀 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'생산 시작 전' },
+    { key:'c6', n:6, name:'온수 CIP', conc:'-', temp:'70 이상', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' },
+    { key:'c7', n:7, name:'건조 및 알코올 소독', conc:'70', temp:'-', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' }
+  ]}
+];
+
+function cipMondayKey(d){
+  var x = new Date(d); x.setHours(0,0,0,0);
+  x.setDate(x.getDate() - ((x.getDay()+6)%7));
+  return dateKey(x);
+}
+function cipDayDate(weekKey, i){
+  var p = weekKey.split('-');
+  return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10)+i);
+}
+function normalizeCipWeek(raw){
+  var days = [];
+  for(var i=0;i<5;i++){
+    var r = raw && raw.days && raw.days[i];
+    var steps = {};
+    if(r && r.steps){ Object.keys(r.steps).forEach(function(k){ if(r.steps[k]) steps[k] = r.steps[k]; }); }
+    days.push({ item:(r && r.item) || '', ph:(r && r.ph) || '', steps:steps });
+  }
+  return { days:days, notes:(raw && raw.notes) || '' };
+}
+
+/* CIP_DATA_BEGIN */
+var cipData = {};
+var cipListeners = {};
+function cipKey(lineId, weekKey){ return lineId+'|'+weekKey; }
+function cipEnsure(lineId, weekKey){
+  var k = cipKey(lineId, weekKey);
+  if(!cipData[k]) cipData[k] = normalizeCipWeek(null);
+  if(!cipListeners[k]){
+    cipListeners[k] = true;
+    fbdb.ref('cip/'+lineId+'/'+weekKey).on('value', function(snap){
+      var next = normalizeCipWeek(snap.val());
+      if(JSON.stringify(next)===JSON.stringify(cipData[k])) return;
+      cipData[k] = next;
+      var top = nav[nav.length-1];
+      if(top && top.screen==='washCip' && top.lineId===lineId && cipWeekKey===weekKey) renderWashCip(lineId);
+    });
+  }
+  return cipData[k];
+}
+function cipSave(lineId, weekKey){
+  fbdb.ref('cip/'+lineId+'/'+weekKey).set(cipData[cipKey(lineId, weekKey)]);
+}
+/* CIP_DATA_END */
+
+var cipWeekKey = null;
+var cipDayIdx = 0;
+function openWashCip(lineId){
+  var today = new Date();
+  cipWeekKey = cipMondayKey(today);
+  var wd = (today.getDay()+6)%7;
+  cipDayIdx = wd>4 ? 4 : wd;
+  push({screen:'washCip', lineId:lineId});
+}
+function cipShiftWeek(delta){
+  var d = cipDayDate(cipWeekKey, delta*7);
+  var key = dateKey(d);
+  if(key > cipMondayKey(new Date())) return;
+  cipWeekKey = key;
+  var top = nav[nav.length-1];
+  renderWashCip(top.lineId);
+}
+function cipPickDay(i){
+  cipDayIdx = i;
+  var top = nav[nav.length-1];
+  renderWashCip(top.lineId);
+}
+function cipCur(){
+  var top = nav[nav.length-1];
+  return { lineId:top.lineId, week:cipEnsure(top.lineId, cipWeekKey) };
+}
+function cipSetItem(v){
+  var c = cipCur(); c.week.days[cipDayIdx].item = v.trim();
+  cipSave(c.lineId, cipWeekKey);
+}
+function cipSetNotes(v){
+  var c = cipCur(); c.week.notes = v.trim();
+  cipSave(c.lineId, cipWeekKey);
+}
+function cipSetStep(key, val){
+  var c = cipCur(); var steps = c.week.days[cipDayIdx].steps;
+  if(steps[key]===val) delete steps[key]; else steps[key] = val;
+  cipSave(c.lineId, cipWeekKey);
+  renderWashCip(c.lineId);
+}
+function cipSetPh(v){
+  var c = cipCur(); c.week.days[cipDayIdx].ph = String(v).trim();
+  cipSave(c.lineId, cipWeekKey);
+  renderWashCip(c.lineId);
+}
+function cipEsc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function cipStepMeta(s){
+  var parts = [];
+  if(s.conc!=='-') parts.push('농도 '+s.conc+'%');
+  if(s.temp!=='-') parts.push('온도 '+s.temp+'℃');
+  if(s.time!=='-') parts.push('기준시간 '+s.time);
+  parts.push(s.zone);
+  return parts.join(' · ');
+}
+function renderWashCip(lineId){
+  renderAppBar(lineId+'호기 · 당류 CIP 체크리스트', {showBack:true});
+  var week = cipEnsure(lineId, cipWeekKey);
+  var day = week.days[cipDayIdx];
+  var mon = cipDayDate(cipWeekKey, 0), fri = cipDayDate(cipWeekKey, 4);
+  var isCurrentWeek = cipWeekKey >= cipMondayKey(new Date());
+  var rangeText = mon.getFullYear()+'.'+pad(mon.getMonth()+1)+'.'+pad(mon.getDate())+' ~ '+pad(fri.getMonth()+1)+'.'+pad(fri.getDate());
+
+  var html =
+    '<div class="cipweek">'+
+      '<button class="cipweek-btn" onclick="cipShiftWeek(-1)" aria-label="이전 주">'+ICON.back+'</button>'+
+      '<div class="cipweek-title">'+rangeText+'</div>'+
+      '<button class="cipweek-btn" onclick="cipShiftWeek(1)" aria-label="다음 주" style="transform:rotate(180deg);"'+(isCurrentWeek?' disabled':'')+'>'+ICON.back+'</button>'+
+    '</div>'+
+    '<div class="cipdays">'+
+      CIP_DAYS.map(function(name, i){
+        var d = cipDayDate(cipWeekKey, i);
+        return '<button class="cipday'+(i===cipDayIdx?' on':'')+'" onclick="cipPickDay('+i+')">'+name+'<span>'+d.getDate()+'</span></button>';
+      }).join('')+
+    '</div>'+
+    '<div class="timerow" style="gap:10px;">'+
+      '<span class="k">품목</span>'+
+      '<input type="text" class="textinput" style="flex:1;max-width:240px;height:38px;text-align:right;" placeholder="품목 입력" value="'+cipEsc(day.item)+'" onchange="cipSetItem(this.value)">'+
+    '</div>';
+
+  CIP_STEPS.forEach(function(group){
+    html += '<div class="eyebrow">'+group.sec+'</div>';
+    group.items.forEach(function(s){
+      var control;
+      if(s.ph){
+        var v = day.ph;
+        var num = parseFloat(v);
+        var status = '';
+        if(v!=='' && !isNaN(num)){
+          status = num<=CIP_PH_LIMIT ? '<span class="cpmatch match" style="display:inline-block;">기준 이내</span>'
+                                    : '<span class="cpmatch mismatch" style="display:inline-block;">기준 초과</span>';
+        }
+        control =
+          '<div class="cipph">'+
+            '<input type="number" inputmode="decimal" step="0.1" class="textinput" style="width:96px;height:38px;text-align:right;" placeholder="실측값" value="'+cipEsc(v)+'" onchange="cipSetPh(this.value)">'+
+            '<span class="cipph-limit">pH 기준 '+CIP_PH_LIMIT+' 이하</span>'+status+
+          '</div>';
+      } else {
+        var val = day.steps[s.key] || null;
+        control =
+          '<div class="cipox">'+
+            '<button type="button" class="btn '+(val==='O'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'O\')">O</button>'+
+            '<button type="button" class="btn '+(val==='X'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'X\')">X</button>'+
+          '</div>';
+      }
+      html +=
+        '<div class="cipstep">'+
+          '<div class="cipstep-top"><span class="cipstep-n">'+s.n+'</span><span class="cipstep-name">'+s.name+'</span></div>'+
+          '<div class="cipstep-meta">'+cipStepMeta(s)+'</div>'+
+          '<div class="cipstep-cycle">'+s.cycle+'</div>'+
+          control+
+        '</div>';
+    });
+  });
+
+  html +=
+    '<div class="eyebrow">특이사항 (이번 주)</div>'+
+    '<textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+
+      cipEsc(week.notes)+'</textarea>'+
+    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>';
+  document.getElementById('screen-root').innerHTML = html;
 }
 function renderAdminLogin(){
   renderAppBar('관리자 로그인', {showBack:true});
@@ -1751,6 +1964,7 @@ function render(){
   else if(top.screen==='menu') renderMenu();
   else if(top.screen==='washChecklist') renderWashChecklist();
   else if(top.screen==='washLine') renderWashLine(top.lineId);
+  else if(top.screen==='washCip') renderWashCip(top.lineId);
   else if(top.screen==='adminLogin') renderAdminLogin();
   else if(top.screen==='adminCalendar') renderAdminCalendar();
   else if(top.screen==='home') renderHome();
