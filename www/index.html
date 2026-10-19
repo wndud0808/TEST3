@@ -123,6 +123,11 @@ button.menubar:hover{border-color:var(--primary);}
 .menubar.soon{background:transparent;border-style:dashed;color:var(--text-muted);font-weight:400;}
 .menubar.wash{background:var(--wash-surface-2);border-color:var(--wash-border-strong);color:var(--wash-text-primary);}
 button.menubar.wash:hover{border-color:var(--wash-primary);}
+.washlines{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.washline{min-width:0;min-height:110px;border-radius:16px;border:0.5px solid var(--border-strong);background:var(--surface-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;}
+.washline:hover{border-color:var(--primary);}
+.washline-num{font-family:var(--font-mono);font-size:30px;font-weight:700;line-height:1;color:var(--text-primary);}
+.washline-label{font-size:12px;color:var(--text-secondary);}
 .rolebtn:hover{border-color:var(--primary);}
 .rolebtn .sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);margin-top:4px;}
 .textinput{width:100%;height:44px;padding:0 12px;border-radius:10px;border:0.5px solid var(--border);background:var(--surface);font-size:15px;color:var(--text-primary);}
@@ -1242,7 +1247,18 @@ function openGoldenTimeLog(){
 function renderWashChecklist(){
   renderAppBar('세척소독 체크리스트', {showBack:true});
   document.getElementById('screen-root').innerHTML =
-    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">세척소독 체크리스트는 준비 중이에요.</div>';
+    '<div class="eyebrow">호기 선택</div>'+
+    '<div class="washlines">'+
+      [1,2,3,4].map(function(id){
+        return '<button class="washline" onclick="push({screen:\'washLine\',lineId:'+id+'})">'+
+          '<span class="washline-num">'+id+'</span><span class="washline-label">호기</span></button>';
+      }).join('')+
+    '</div>';
+}
+function renderWashLine(lineId){
+  renderAppBar(lineId+'호기 · 세척소독 체크리스트', {showBack:true});
+  document.getElementById('screen-root').innerHTML =
+    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">'+lineId+'호기 세척소독 체크리스트는 준비 중이에요.</div>';
 }
 function renderAdminLogin(){
   renderAppBar('관리자 로그인', {showBack:true});
@@ -1731,6 +1747,7 @@ function render(){
   if(top.screen==='role') renderRole();
   else if(top.screen==='menu') renderMenu();
   else if(top.screen==='washChecklist') renderWashChecklist();
+  else if(top.screen==='washLine') renderWashLine(top.lineId);
   else if(top.screen==='adminLogin') renderAdminLogin();
   else if(top.screen==='adminCalendar') renderAdminCalendar();
   else if(top.screen==='home') renderHome();
