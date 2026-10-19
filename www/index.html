@@ -1258,8 +1258,10 @@ function renderWashChecklist(){
 }
 function renderWashLine(lineId){
   renderAppBar(lineId+'호기 · 세척소독 체크리스트', {showBack:true});
+  /* 3,4호기 are not built yet; 1,2호기 get their real content next. */
+  var msg = lineId>=3 ? '준비중' : lineId+'호기 세척소독 체크리스트는 준비 중이에요.';
   document.getElementById('screen-root').innerHTML =
-    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">'+lineId+'호기 세척소독 체크리스트는 준비 중이에요.</div>';
+    '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">'+msg+'</div>';
 }
 function renderAdminLogin(){
   renderAppBar('관리자 로그인', {showBack:true});
