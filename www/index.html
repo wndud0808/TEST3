@@ -1079,12 +1079,13 @@ function savePhoto(){
     if(key==='start') job.startAt = iso;
     else if(key==='end') job.endAt = iso;
   }
-  if(pendingFileData && pendingOriginal){
-    origPut(origKey(currentDateStr, lineId, slot, key), { uri:pendingOriginal.uri, box:pendingOriginal.box, savedAt:Date.now() });
+  var ocrOrig = (pendingFileData && pendingOriginal) ? pendingOriginal : null;
+  if(ocrOrig){
+    origPut(origKey(currentDateStr, lineId, slot, key), { uri:ocrOrig.uri, box:ocrOrig.box, savedAt:Date.now() });
   }
   pendingFileData = null; pendingOriginal = null;
   saveState(lineId, slot);
-  runOcrCheck(lineId, slot, key);
+  runOcrCheck(lineId, slot, key, ocrOrig);
   goBack();
 }
 function deletePhoto(){
@@ -1105,53 +1106,109 @@ function ocrDigitsOnly(text){
   if(!text) return '';
   return text.replace(/[oO]/g,'0').replace(/[lI]/g,'1').replace(/\D/g,'');
 }
-/* Grayscale + contrast boost applied only to the transient OCR copy -
-   the stored/synced photo is never touched. Helps low-contrast
-   embossed date stamps (ink-free, shadow-only digits) stand out more
-   for the text recognizer. */
-function enhanceForOcr(dataUri){
+function ocrLoadImage(uri){
   return new Promise(function(resolve){
     var img = new Image();
-    img.onload = function(){
-      try{
-        var canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        var ctx = canvas.getContext('2d');
-        ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
-      }catch(e){ resolve(dataUri); }
-    };
-    img.onerror = function(){ resolve(dataUri); };
-    img.src = dataUri;
+    img.onload = function(){ resolve(img); };
+    img.onerror = function(){ resolve(null); };
+    img.src = uri;
   });
 }
-async function runOcrCheck(lineId, slot, key){
+/* Build one transient OCR input image (never stored or synced).
+   - Padding: the recognizer drops characters that touch the image edge,
+     and the saved crop is tight around the date, so the first/last digit
+     kept getting lost (e.g. 2028.10.06 read as "2023.10.0"). A generous
+     border in the photo's own average color gives every digit room.
+   - Upscale: only helps when the text is small, so it is optional.
+   - Enhance: grayscale + contrast for low-contrast embossed digits. */
+function makeOcrImage(img, opts){
+  var sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+  if(opts.crop){ sx = opts.crop.x; sy = opts.crop.y; sw = opts.crop.w; sh = opts.crop.h; }
+  var scale = opts.scale || 1;
+  var dw = Math.max(1, Math.round(sw*scale)), dh = Math.max(1, Math.round(sh*scale));
+  var pad = Math.max(40, Math.round(Math.min(dw, dh)*0.35));
+  var c = document.createElement('canvas');
+  c.width = dw + pad*2; c.height = dh + pad*2;
+  var ctx = c.getContext('2d');
+  if(opts.enhance) ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
+  var m = document.createElement('canvas'); m.width = 1; m.height = 1;
+  var mctx = m.getContext('2d');
+  mctx.drawImage(img, sx, sy, sw, sh, 0, 0, 1, 1);
+  var d = mctx.getImageData(0, 0, 1, 1).data;
+  ctx.fillStyle = 'rgb('+d[0]+','+d[1]+','+d[2]+')';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, sx, sy, sw, sh, pad, pad, dw, dh);
+  return c.toDataURL('image/jpeg', 0.92);
+}
+/* Ordered attempts; the caller stops at the first one whose digits contain
+   the expected date. Later (slower) attempts only run if earlier ones miss. */
+function ocrVariants(photoUri, orig){
+  function upscaleFor(img){
+    var up = Math.min(2, 2000/Math.max(img.naturalWidth, img.naturalHeight));
+    return up < 1.05 ? 1 : up;
+  }
+  var v = [];
+  v.push(async function(){
+    var img = await ocrLoadImage(photoUri); if(!img) return null;
+    return makeOcrImage(img, { enhance:true });
+  });
+  if(orig && orig.uri && orig.box){
+    /* same area re-cut from the device-only original (more real detail than the saved 1280px crop) */
+    v.push(async function(){
+      var img = await ocrLoadImage(orig.uri); if(!img) return null;
+      var b = orig.box, W = img.naturalWidth, H = img.naturalHeight;
+      var crop = { x:Math.round(b.x*W), y:Math.round(b.y*H), w:Math.max(1, Math.round(b.w*W)), h:Math.max(1, Math.round(b.h*H)) };
+      var up = Math.min(2, 2000/Math.max(crop.w, crop.h)); if(up < 1.05) up = 1;
+      return makeOcrImage(img, { crop:crop, scale:up, enhance:true });
+    });
+  }
+  v.push(async function(){
+    var img = await ocrLoadImage(photoUri); if(!img) return null;
+    return makeOcrImage(img, { scale:upscaleFor(img) });
+  });
+  v.push(async function(){
+    var img = await ocrLoadImage(photoUri); if(!img) return null;
+    return makeOcrImage(img, { scale:upscaleFor(img), enhance:true });
+  });
+  return v;
+}
+async function ocrReadDataUri(plugins, dataUri){
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(dataUri);
+  if(!m) return '';
+  var fname = 'ocr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)+'.'+(m[1]==='jpg' ? 'jpeg' : m[1]);
+  try{
+    var written = await plugins.Filesystem.writeFile({ path:fname, data:m[2], directory:'CACHE' });
+    var result = await plugins.TextRecognition.processImage({ path:written.uri, script:'LATIN' });
+    return (result && result.text) || '';
+  }catch(e){
+    console.warn('OCR failed', e);
+    return '';
+  }finally{
+    try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
+  }
+}
+async function runOcrCheck(lineId, slot, key, orig){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
   if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
-  var enhanced = await enhanceForOcr(cp.photo);
-  var m = /^data:image\/(\w+);base64,(.+)$/.exec(enhanced);
-  if(!m) return;
-  var ext = m[1]==='jpg' ? 'jpeg' : m[1];
-  var fname = 'ocr_'+Date.now()+'.'+ext;
-  try{
-    var written = await plugins.Filesystem.writeFile({ path:fname, data:m[2], directory:'CACHE' });
-    var result = await plugins.TextRecognition.processImage({ path:written.uri, script:'LATIN' });
-    var rawText = (result && result.text) || '';
-    var expectedDigits = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
-    var textDigits = ocrDigitsOnly(rawText);
-    cp.ocrText = rawText || null;
-    cp.ocrMatch = rawText ? (textDigits.indexOf(expectedDigits)>=0 ? 'match' : 'mismatch') : null;
-    saveState(lineId, slot);
-    render();
-    try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
-  }catch(e){
-    console.warn('OCR failed', e);
+  var expectedDigits = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
+  var variants = ocrVariants(cp.photo, orig);
+  var bestText = '', bestDigits = '', matched = false;
+  for(var i=0; i<variants.length && !matched; i++){
+    var uri;
+    try{ uri = await variants[i](); }catch(e){ uri = null; }
+    if(!uri) continue;
+    var text = await ocrReadDataUri(plugins, uri);
+    var digits = ocrDigitsOnly(text);
+    if(digits.indexOf(expectedDigits)>=0){ matched = true; bestText = text; bestDigits = digits; }
+    else if(digits.length > bestDigits.length){ bestText = text; bestDigits = digits; }
   }
+  cp.ocrText = bestText || null;
+  cp.ocrMatch = matched ? 'match' : (bestText ? 'mismatch' : null);
+  saveState(lineId, slot);
+  render();
 }
 
 function renderAppBar(title, opts){
