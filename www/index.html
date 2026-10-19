@@ -1114,6 +1114,32 @@ function ocrLoadImage(uri){
     img.src = uri;
   });
 }
+/* Average color of the image's outer ring, so the padding blends with
+   the photo's own border instead of adding a fake edge. The area is
+   halved repeatedly (a real 2x2 average each step) before sampling -
+   shrinking straight to a tiny size would just pick isolated pixels. */
+function ocrEdgeColor(img, sx, sy, sw, sh){
+  var cur = document.createElement('canvas');
+  cur.width = Math.max(1, sw); cur.height = Math.max(1, sh);
+  cur.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cur.width, cur.height);
+  while(cur.width>32 || cur.height>32){
+    var n = document.createElement('canvas');
+    n.width = Math.max(1, Math.ceil(cur.width/2)); n.height = Math.max(1, Math.ceil(cur.height/2));
+    n.getContext('2d').drawImage(cur, 0, 0, n.width, n.height);
+    cur = n;
+  }
+  var data = cur.getContext('2d').getImageData(0, 0, cur.width, cur.height).data;
+  var r = 0, g = 0, b = 0, cnt = 0;
+  for(var y=0; y<cur.height; y++){
+    for(var x=0; x<cur.width; x++){
+      if(x===0 || y===0 || x===cur.width-1 || y===cur.height-1){
+        var k = (y*cur.width + x)*4;
+        r += data[k]; g += data[k+1]; b += data[k+2]; cnt++;
+      }
+    }
+  }
+  return 'rgb('+Math.round(r/cnt)+','+Math.round(g/cnt)+','+Math.round(b/cnt)+')';
+}
 /* Build one transient OCR input image (never stored or synced).
    - Padding: the recognizer drops characters that touch the image edge,
      and the saved crop is tight around the date, so the first/last digit
@@ -1131,11 +1157,7 @@ function makeOcrImage(img, opts){
   c.width = dw + pad*2; c.height = dh + pad*2;
   var ctx = c.getContext('2d');
   if(opts.enhance) ctx.filter = 'grayscale(1) contrast(1.8) brightness(1.15)';
-  var m = document.createElement('canvas'); m.width = 1; m.height = 1;
-  var mctx = m.getContext('2d');
-  mctx.drawImage(img, sx, sy, sw, sh, 0, 0, 1, 1);
-  var d = mctx.getImageData(0, 0, 1, 1).data;
-  ctx.fillStyle = 'rgb('+d[0]+','+d[1]+','+d[2]+')';
+  ctx.fillStyle = ocrEdgeColor(img, sx, sy, sw, sh);
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(img, sx, sy, sw, sh, pad, pad, dw, dh);
   return c.toDataURL('image/jpeg', 0.92);
