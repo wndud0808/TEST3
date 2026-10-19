@@ -1404,7 +1404,7 @@ function cipEsc(s){
 function cipStepMeta(s){
   var parts = [];
   if(s.conc!=='-') parts.push('농도 '+s.conc+'%');
-  if(s.temp!=='-') parts.push('온도 '+s.temp+'℃');
+  if(s.temp!=='-') parts.push('온도 '+s.temp.replace(/^(\d+)/, '$1℃'));
   if(s.time!=='-') parts.push('기준시간 '+s.time);
   parts.push(s.zone);
   return parts.join(' · ');
