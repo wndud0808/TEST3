@@ -135,7 +135,17 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .cipweek-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
 .cipweek-btn:hover{background:var(--surface-2);}
 .cipweek-btn:disabled{opacity:0.3;cursor:default;}
-.cipweek-title{font-family:var(--font-mono);font-size:15px;font-weight:500;}
+.cipweek-title{font-family:var(--font-mono);font-size:15px;font-weight:500;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;color:var(--text-primary);}
+.cipweek-title:hover{background:var(--surface-2);}
+.wcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.wcal-wd{font-size:11px;color:var(--text-muted);text-align:center;padding:4px 0;}
+.wcal-day{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:10px;font-size:13px;color:var(--text-primary);background:transparent;}
+.wcal-day.empty{visibility:hidden;}
+.wcal-day.weekend{color:var(--text-muted);}
+.wcal-day.inweek{background:var(--primary);color:var(--on-primary);font-weight:700;}
+.wcal-day.today{box-shadow:inset 0 0 0 1.5px var(--primary);}
+.wcal-day:disabled{opacity:0.3;cursor:default;}
+button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
 .cipdays{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;}
 .cipday{min-width:0;padding:8px 0;border-radius:12px;border:0.5px solid var(--border);background:var(--surface-2);text-align:center;font-size:13px;font-weight:700;color:var(--text-secondary);display:flex;flex-direction:column;gap:2px;}
 .cipday span{font-family:var(--font-mono);font-size:11px;font-weight:400;}
@@ -307,6 +317,7 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
     <div class="modal-overlay" id="update-overlay" hidden></div>
     <div class="modal-overlay" id="photopick-overlay" hidden></div>
     <div class="modal-overlay" id="confirm-overlay" hidden></div>
+    <div class="modal-overlay" id="wcal-overlay" hidden></div>
   </div>
 </div>
 
@@ -516,10 +527,10 @@ function syncHistory(replace){
   else history.pushState(state, '', location.href);
 }
 window.addEventListener('popstate', function(e){
-  if(e.state && e.state.nav){ nav = e.state.nav; render(); }
+  if(e.state && e.state.nav){ closeCipCalendar(); nav = e.state.nav; render(); }
 });
 
-function push(entry){ nav.push(entry); syncHistory(false); render(); }
+function push(entry){ closeCipCalendar(); nav.push(entry); syncHistory(false); render(); }
 function goHome(){ nav = [{screen:'role'}]; syncHistory(true); render(); }
 function goBack(){ if(nav.length>1) history.back(); }
 
@@ -1449,6 +1460,67 @@ function cipShiftWeek(delta){
   var top = nav[nav.length-1];
   renderWashCip(top.lineId);
 }
+/* Week picker: a Monday-first month calendar. Tapping any date selects the
+   Mon-Fri week it falls in (a weekend date maps to that week's Friday tab).
+   Weeks after the current one can't be chosen. */
+var cipCalYear = 0, cipCalMonth = 0;
+var CIP_CAL_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+function openCipCalendar(){
+  var d = cipDayDate(cipWeekKey, cipDayIdx);
+  cipCalYear = d.getFullYear(); cipCalMonth = d.getMonth()+1;
+  renderCipCalendar();
+  document.getElementById('wcal-overlay').hidden = false;
+}
+function closeCipCalendar(){ document.getElementById('wcal-overlay').hidden = true; }
+function shiftCipCalMonth(delta){
+  var y = cipCalYear, m = cipCalMonth+delta;
+  if(m<1){ m=12; y--; } else if(m>12){ m=1; y++; }
+  if(delta>0 && cipMondayKey(new Date(y, m-1, 1)) > cipMondayKey(new Date())) return;
+  cipCalYear = y; cipCalMonth = m;
+  renderCipCalendar();
+}
+function renderCipCalendar(){
+  var y = cipCalYear, m = cipCalMonth;
+  var firstOffset = (new Date(y, m-1, 1).getDay()+6)%7;
+  var daysInMonth = new Date(y, m, 0).getDate();
+  var curMon = cipMondayKey(new Date());
+  var todayKey = dateKey(new Date());
+  var nextBlocked = cipMondayKey(new Date(y, m, 1)) > curMon;
+  var cells = '';
+  for(var i=0; i<firstOffset; i++) cells += '<div class="wcal-day empty"></div>';
+  for(var d=1; d<=daysInMonth; d++){
+    var dt = new Date(y, m-1, d), key = dateKey(dt), mon = cipMondayKey(dt);
+    var weekday = (dt.getDay()+6)%7;
+    var future = mon > curMon;
+    var cls = 'wcal-day'+(mon===cipWeekKey && weekday<=4 ? ' inweek' : '')+(key===todayKey ? ' today' : '')+(weekday>=5 ? ' weekend' : '');
+    cells += '<button class="'+cls+'"'+(future ? ' disabled' : '')+' onclick="pickCipWeek(\''+key+'\')">'+d+'</button>';
+  }
+  document.getElementById('wcal-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>주차 선택</h3>'+
+      '<div class="calhead">'+
+        '<button onclick="shiftCipCalMonth(-1)" aria-label="이전 달">'+ICON.back+'</button>'+
+        '<span class="caltitle">'+y+'.'+pad(m)+'</span>'+
+        '<button onclick="shiftCipCalMonth(1)" aria-label="다음 달" style="transform:rotate(180deg);"'+(nextBlocked ? ' disabled' : '')+'>'+ICON.back+'</button>'+
+      '</div>'+
+      '<div class="wcal-grid">'+
+        ['월','화','수','목','금','토','일'].map(function(w){ return '<div class="wcal-wd">'+w+'</div>'; }).join('')+
+        cells+
+      '</div>'+
+      '<div class="hint" style="margin:0;">날짜를 누르면 그 날짜가 속한 주(월~금)가 선택돼요</div>'+
+      '<button class="btn btn-outline" onclick="closeCipCalendar()">닫기</button>'+
+    '</div>';
+}
+function pickCipWeek(dateStr){
+  var p = dateStr.split('-');
+  var dt = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+  cipWeekKey = cipMondayKey(dt);
+  var wd = (dt.getDay()+6)%7;
+  cipDayIdx = wd<=4 ? wd : 4;
+  closeCipCalendar();
+  var top = nav[nav.length-1];
+  renderWashCip(top.lineId);
+}
 function cipPickDay(i){
   cipDayIdx = i;
   var top = nav[nav.length-1];
@@ -1499,7 +1571,7 @@ function renderWashCip(lineId){
   var html =
     '<div class="cipweek">'+
       '<button class="cipweek-btn" onclick="cipShiftWeek(-1)" aria-label="이전 주">'+ICON.back+'</button>'+
-      '<div class="cipweek-title">'+rangeText+'</div>'+
+      '<button class="cipweek-title" onclick="openCipCalendar()" aria-label="달력에서 주차 선택">'+rangeText+CIP_CAL_ICON+'</button>'+
       '<button class="cipweek-btn" onclick="cipShiftWeek(1)" aria-label="다음 주" style="transform:rotate(180deg);"'+(isCurrentWeek?' disabled':'')+'>'+ICON.back+'</button>'+
     '</div>'+
     '<div class="cipdays">'+
