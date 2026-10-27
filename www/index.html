@@ -137,6 +137,18 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .cipweek-btn:disabled{opacity:0.3;cursor:default;}
 .cipweek-title{font-family:var(--font-mono);font-size:15px;font-weight:500;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;color:var(--text-primary);}
 .cipweek-title:hover{background:var(--surface-2);}
+.modal-overlay.top{align-items:flex-start;}
+.modal-overlay.top .sheet{border-radius:0 0 20px 20px;}
+.cipacc{display:flex;flex-direction:column;gap:8px;}
+.cipacc-head{width:100%;display:flex;align-items:center;gap:8px;padding:13px 14px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);font-size:15px;font-weight:700;color:var(--text-primary);text-align:left;}
+.cipacc-head .cnt{margin-left:auto;font-family:var(--font-mono);font-size:12px;font-weight:400;color:var(--text-muted);}
+.cipacc-head.done .cnt{color:var(--primary);font-weight:700;}
+.cipacc-chev{display:flex;flex:0 0 auto;color:var(--text-secondary);transform:rotate(-90deg);transition:transform .15s;}
+.cipacc.open > .cipacc-head{background:var(--primary);border-color:var(--primary);color:var(--on-primary);}
+.cipacc.open > .cipacc-head .cnt,.cipacc.open > .cipacc-head .cipacc-chev{color:var(--on-primary);}
+.cipacc.open .cipacc-chev{transform:rotate(90deg);}
+.cipacc-body{display:flex;flex-direction:column;gap:10px;}
+
 .wcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
 .wcal-wd{font-size:11px;color:var(--text-muted);text-align:center;padding:4px 0;}
 .wcal-day{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:10px;font-size:13px;color:var(--text-primary);background:transparent;}
@@ -317,7 +329,7 @@ button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
     <div class="modal-overlay" id="update-overlay" hidden></div>
     <div class="modal-overlay" id="photopick-overlay" hidden></div>
     <div class="modal-overlay" id="confirm-overlay" hidden></div>
-    <div class="modal-overlay" id="wcal-overlay" hidden></div>
+    <div class="modal-overlay top" id="wcal-overlay" hidden onclick="if(event.target===this) closeCipCalendar()"></div>
   </div>
 </div>
 
@@ -1521,6 +1533,13 @@ function pickCipWeek(dateStr){
   var top = nav[nav.length-1];
   renderWashCip(top.lineId);
 }
+var cipOpenSec = {};
+function cipToggleSec(k){
+  cipOpenSec[k] = !cipOpenSec[k];
+  var top = nav[nav.length-1];
+  renderWashCip(top.lineId);
+}
+
 function cipPickDay(i){
   cipDayIdx = i;
   var top = nav[nav.length-1];
@@ -1585,8 +1604,16 @@ function renderWashCip(lineId){
       '<input type="text" class="textinput" style="flex:1;max-width:240px;height:38px;text-align:right;" placeholder="품목 입력" value="'+cipEsc(day.item)+'" onchange="cipSetItem(this.value)">'+
     '</div>';
 
+  function accHead(key, label, countText, isDone){
+    var open = !!cipOpenSec[key];
+    return '<button type="button" class="cipacc-head'+(isDone?' done':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
+      '<span>'+label+'</span><span class="cnt">'+countText+'</span>'+
+      '<span class="cipacc-chev">'+ICON.back+'</span></button>';
+  }
   CIP_STEPS.forEach(function(group){
-    html += '<div class="eyebrow">'+group.sec+'</div>';
+    var filled = group.items.filter(function(s){ return s.ph ? day.ph!=='' : !!day.steps[s.key]; }).length;
+    var secKey = 'sec-'+group.sec;
+    var body = '';
     group.items.forEach(function(s){
       var control;
       if(s.ph){
@@ -1610,7 +1637,7 @@ function renderWashCip(lineId){
             '<button type="button" class="btn '+(val==='X'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'X\')">X</button>'+
           '</div>';
       }
-      html +=
+      body +=
         '<div class="cipstep">'+
           '<div class="cipstep-top"><span class="cipstep-n">'+s.n+'</span><span class="cipstep-name">'+s.name+'</span></div>'+
           '<div class="cipstep-meta">'+cipStepMeta(s)+'</div>'+
@@ -1618,12 +1645,20 @@ function renderWashCip(lineId){
           control+
         '</div>';
     });
+    html +=
+      '<div class="cipacc'+(cipOpenSec[secKey]?' open':'')+'">'+
+        accHead(secKey, group.sec, filled+'/'+group.items.length, filled===group.items.length)+
+        (cipOpenSec[secKey] ? '<div class="cipacc-body">'+body+'</div>' : '')+
+      '</div>';
   });
 
   html +=
-    '<div class="eyebrow">특이사항 (이번 주)</div>'+
-    '<textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+
-      cipEsc(week.notes)+'</textarea>'+
+    '<div class="cipacc'+(cipOpenSec.notes?' open':'')+'">'+
+      accHead('notes', '특이사항 (이번 주)', week.notes ? '작성됨' : '', !!week.notes)+
+      (cipOpenSec.notes
+        ? '<div class="cipacc-body"><textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+cipEsc(week.notes)+'</textarea></div>'
+        : '')+
+    '</div>'+
     '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>';
   document.getElementById('screen-root').innerHTML = html;
 }
