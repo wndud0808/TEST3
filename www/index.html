@@ -336,6 +336,7 @@ button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="capacitor.js"></script>
 <script>
 var firebaseConfig = {
@@ -349,6 +350,60 @@ var firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 var fbdb = firebase.database();
+/* FB_AUTH_BEGIN */
+/* Anonymous sign-in. Workers never see a login screen: the SDK signs the
+   device in once and keeps the session across restarts. The database rules
+   are still open today, so a failed sign-in (provider switched off, offline)
+   must never block the app - the gate below resolves either way. Once the
+   rules require auth, calls made before sign-in would be rejected, so every
+   database read/write goes through fbOn/fbSet, which wait for the gate first
+   and retry once a user exists. */
+var fbAuthUser = null;
+var fbUserWaiters = [];
+function fbWhenSignedIn(fn){
+  if(fbAuthUser) fn(); else fbUserWaiters.push(fn);
+}
+var fbAuthReady = new Promise(function(resolve){
+  var settled = false, started = false;
+  function done(){ if(!settled){ settled = true; resolve(); } }
+  function signIn(){
+    firebase.auth().signInAnonymously().catch(function(err){
+      console.warn('anonymous sign-in failed:', err && err.code);
+      done();
+      if(err && err.code==='auth/network-request-failed') setTimeout(signIn, 10000);
+    });
+  }
+  firebase.auth().onAuthStateChanged(function(user){
+    fbAuthUser = user;
+    if(user){
+      done();
+      var waiting = fbUserWaiters; fbUserWaiters = [];
+      waiting.forEach(function(fn){ fn(); });
+    } else if(!started){
+      started = true;
+      signIn();
+    }
+  });
+});
+function fbOn(path, cb){
+  fbAuthReady.then(function attach(){
+    fbdb.ref(path).on('value', cb, function(err){
+      /* rejected before we were signed in: listen again once we are */
+      if(!fbAuthUser) fbWhenSignedIn(attach);
+      else console.warn('listen failed:', path, err && err.code);
+    });
+  });
+}
+function fbSet(path, val){
+  fbAuthReady.then(function(){
+    return fbdb.ref(path).set(val);
+  }).catch(function(err){
+    if(!fbAuthUser) fbWhenSignedIn(function(){ fbdb.ref(path).set(val); });
+    else console.warn('write failed:', path, err && err.code);
+  });
+}
+/* FB_AUTH_END */
+
 
 var CP_KEYS = ['start','lunchBefore','lunchAfter','breakBefore','breakAfter','dinnerBefore','dinnerAfter','end'];
 var CP_LABELS = {
@@ -482,7 +537,7 @@ function attachDayListener(dateStr){
   [1,2,3,4].forEach(function(lineId){
     for(var slot=0; slot<4; slot++){
       (function(lineId, slot){
-        fbdb.ref('days/'+dateStr+'/lines/'+lineId+'/slots/'+slot).on('value', function(snap){
+        fbOn('days/'+dateStr+'/lines/'+lineId+'/slots/'+slot, function(snap){
           if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
           state.byDate[dateStr].lines[lineId].slots[slot] = normalizeJob(snap.val());
           if(dateStr===currentDateStr) render();
@@ -494,7 +549,7 @@ function attachDayListener(dateStr){
 function attachDateIndexListener(){
   if(dateIndexListenerAttached) return;
   dateIndexListenerAttached = true;
-  fbdb.ref('dateIndex').on('value', function(snap){
+  fbOn('dateIndex', function(snap){
     dateIndexCache = snap.val() || {};
     var top = nav[nav.length-1];
     if(top && top.screen==='adminCalendar') render();
@@ -504,8 +559,8 @@ function getJob(lineId, slot){ return ensureDay(currentDateStr).lines[lineId].sl
 function setJob(lineId, slot, job){ ensureDay(currentDateStr).lines[lineId].slots[slot] = job; }
 function saveState(lineId, slot){
   var job = state.byDate[currentDateStr].lines[lineId].slots[slot];
-  fbdb.ref('days/'+currentDateStr+'/lines/'+lineId+'/slots/'+slot).set(job);
-  fbdb.ref('dateIndex/'+currentDateStr).set(true);
+  fbSet('days/'+currentDateStr+'/lines/'+lineId+'/slots/'+slot, job);
+  fbSet('dateIndex/'+currentDateStr, true);
 }
 function onDateChange(v){
   if(!v) return;
@@ -1440,7 +1495,7 @@ function cipEnsure(lineId, weekKey){
   if(!cipData[k]) cipData[k] = normalizeCipWeek(null);
   if(!cipListeners[k]){
     cipListeners[k] = true;
-    fbdb.ref('cip/'+lineId+'/'+weekKey).on('value', function(snap){
+    fbOn('cip/'+lineId+'/'+weekKey, function(snap){
       var next = normalizeCipWeek(snap.val());
       if(JSON.stringify(next)===JSON.stringify(cipData[k])) return;
       cipData[k] = next;
@@ -1451,7 +1506,7 @@ function cipEnsure(lineId, weekKey){
   return cipData[k];
 }
 function cipSave(lineId, weekKey){
-  fbdb.ref('cip/'+lineId+'/'+weekKey).set(cipData[cipKey(lineId, weekKey)]);
+  fbSet('cip/'+lineId+'/'+weekKey, cipData[cipKey(lineId, weekKey)]);
 }
 /* CIP_DATA_END */
 
