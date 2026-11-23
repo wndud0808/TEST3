@@ -123,12 +123,11 @@ button.menubar:hover{border-color:var(--primary);}
 .menubar.soon{background:transparent;border-style:dashed;color:var(--text-muted);font-weight:400;}
 .menubar.wash{background:var(--wash-surface-2);border-color:var(--wash-border-strong);color:var(--wash-text-primary);}
 button.menubar.wash:hover{border-color:var(--wash-primary);}
-.washlines{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
-.content > .washlines{max-width:420px;}
-.washline{min-width:0;aspect-ratio:1/1;border-radius:28px;border:0.5px solid var(--border-strong);background:var(--surface-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;}
+.washlines{display:flex;flex-direction:column;gap:10px;}
+.washline{width:100%;min-width:0;height:68px;padding:0 20px;border-radius:18px;border:0.5px solid var(--border-strong);background:var(--surface-2);display:flex;align-items:center;gap:10px;text-align:left;}
 .washline:hover{border-color:var(--primary);}
-.washline-num{font-family:var(--font-mono);font-size:48px;font-weight:700;line-height:1;color:var(--text-primary);}
-.washline-label{font-size:14px;color:var(--text-secondary);}
+.washline-name{font-size:19px;font-weight:700;color:var(--text-primary);}
+.washline-chev{margin-left:auto;display:flex;color:var(--text-muted);transform:rotate(180deg);}
 
 /* 당류 CIP 체크리스트 */
 .cipweek{display:flex;align-items:center;justify-content:space-between;}
@@ -147,6 +146,16 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .cipacc.open > .cipacc-head{background:var(--primary);border-color:var(--primary);color:var(--on-primary);}
 .cipacc.open > .cipacc-head .cnt,.cipacc.open > .cipacc-head .cipacc-chev{color:var(--on-primary);}
 .cipacc.open .cipacc-chev{transform:rotate(90deg);}
+.cipacc-head.warn{border-color:var(--danger);background:var(--danger-bg);color:var(--danger);}
+.cipacc-head.warn .cnt,.cipacc-head.warn .cipacc-chev{color:var(--danger);font-weight:700;}
+.cipacc.open > .cipacc-head.warn{background:var(--danger);border-color:var(--danger);color:#fff;}
+.cipacc.open > .cipacc-head.warn .cnt,.cipacc.open > .cipacc-head.warn .cipacc-chev{color:#fff;}
+.cipstep.err{border-color:var(--danger);background:var(--danger-bg);}
+.textinput.err{border-color:var(--danger);color:var(--danger);font-weight:700;}
+.cipph-err{width:100%;font-size:12.5px;font-weight:700;color:var(--danger);}
+.cipday{position:relative;}
+.cipday-dot{position:absolute;top:5px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 1.5px var(--surface-2);}
+.cipday.on .cipday-dot{box-shadow:0 0 0 1.5px var(--primary);}
 .cipacc-body{display:flex;flex-direction:column;gap:10px;}
 
 .wcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
@@ -1430,7 +1439,7 @@ function renderWashChecklist(){
     '<div class="washlines">'+
       [1,2,3,4].map(function(id){
         return '<button class="washline" onclick="openWashLine('+id+')">'+
-          '<span class="washline-num">'+id+'</span><span class="washline-label">호기</span></button>';
+          '<span class="washline-name">'+id+'호기</span><span class="washline-chev">'+ICON.back+'</span></button>';
       }).join('')+
     '</div>';
 }
@@ -1481,7 +1490,7 @@ function normalizeCipWeek(raw){
     var r = raw && raw.days && raw.days[i];
     var steps = {};
     if(r && r.steps){ Object.keys(r.steps).forEach(function(k){ if(r.steps[k]) steps[k] = r.steps[k]; }); }
-    days.push({ item:(r && r.item) || '', ph:(r && r.ph) || '', steps:steps });
+    days.push({ ph:(r && r.ph) || '', steps:steps });
   }
   return { days:days, notes:(raw && raw.notes) || '' };
 }
@@ -1604,10 +1613,6 @@ function cipCur(){
   var top = nav[nav.length-1];
   return { lineId:top.lineId, week:cipEnsure(top.lineId, cipWeekKey) };
 }
-function cipSetItem(v){
-  var c = cipCur(); c.week.days[cipDayIdx].item = v.trim();
-  cipSave(c.lineId, cipWeekKey);
-}
 function cipSetNotes(v){
   var c = cipCur(); c.week.notes = v.trim();
   cipSave(c.lineId, cipWeekKey);
@@ -1625,6 +1630,10 @@ function cipSetPh(v){
 }
 function cipEsc(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function cipPhOver(v){
+  var num = parseFloat(v);
+  return v!=='' && !isNaN(num) && num>CIP_PH_LIMIT;
 }
 function cipStepMeta(s){
   var parts = [];
@@ -1651,38 +1660,37 @@ function renderWashCip(lineId){
     '<div class="cipdays">'+
       CIP_DAYS.map(function(name, i){
         var d = cipDayDate(cipWeekKey, i);
-        return '<button class="cipday'+(i===cipDayIdx?' on':'')+'" onclick="cipPickDay('+i+')">'+name+'<span>'+d.getDate()+'</span></button>';
+        var over = cipPhOver(week.days[i].ph);
+        return '<button class="cipday'+(i===cipDayIdx?' on':'')+'" onclick="cipPickDay('+i+')">'+name+'<span>'+d.getDate()+'</span>'+(over ? '<i class="cipday-dot" title="pH 기준 초과"></i>' : '')+'</button>';
       }).join('')+
-    '</div>'+
-    '<div class="timerow" style="gap:10px;">'+
-      '<span class="k">품목</span>'+
-      '<input type="text" class="textinput" style="flex:1;max-width:240px;height:38px;text-align:right;" placeholder="품목 입력" value="'+cipEsc(day.item)+'" onchange="cipSetItem(this.value)">'+
     '</div>';
 
-  function accHead(key, label, countText, isDone){
+  function accHead(key, label, countText, isDone, isWarn){
     var open = !!cipOpenSec[key];
-    return '<button type="button" class="cipacc-head'+(isDone?' done':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
+    return '<button type="button" class="cipacc-head'+(isDone?' done':'')+(isWarn?' warn':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
       '<span>'+label+'</span><span class="cnt">'+countText+'</span>'+
       '<span class="cipacc-chev">'+ICON.back+'</span></button>';
   }
   CIP_STEPS.forEach(function(group){
     var filled = group.items.filter(function(s){ return s.ph ? day.ph!=='' : !!day.steps[s.key]; }).length;
     var secKey = 'sec-'+group.sec;
+    var phOver = group.items.some(function(s){ return s.ph && cipPhOver(day.ph); });
     var body = '';
     group.items.forEach(function(s){
-      var control;
+      var control, stepErr = false;
       if(s.ph){
         var v = day.ph;
         var num = parseFloat(v);
         var status = '';
         if(v!=='' && !isNaN(num)){
-          status = num<=CIP_PH_LIMIT ? '<span class="cpmatch match" style="display:inline-block;">기준 이내</span>'
-                                    : '<span class="cpmatch mismatch" style="display:inline-block;">기준 초과</span>';
+          status = num<=CIP_PH_LIMIT ? '<span class="cpmatch match" style="display:inline-block;">기준 이내</span>' : '';
         }
+        stepErr = cipPhOver(v);
         control =
           '<div class="cipph">'+
-            '<input type="number" inputmode="decimal" step="0.1" class="textinput" style="width:96px;height:38px;text-align:right;" placeholder="실측값" value="'+cipEsc(v)+'" onchange="cipSetPh(this.value)">'+
+            '<input type="number" inputmode="decimal" step="0.1" class="textinput'+(stepErr?' err':'')+'" style="width:96px;height:38px;text-align:right;" placeholder="실측값" value="'+cipEsc(v)+'" onchange="cipSetPh(this.value)">'+
             '<span class="cipph-limit">pH 기준 '+CIP_PH_LIMIT+' 이하</span>'+status+
+            (stepErr ? '<div class="cipph-err">⚠ 오류: pH '+cipEsc(v)+' — 기준('+CIP_PH_LIMIT+' 이하)을 초과했습니다. 값을 다시 확인하세요.</div>' : '')+
           '</div>';
       } else {
         var val = day.steps[s.key] || null;
@@ -1693,7 +1701,7 @@ function renderWashCip(lineId){
           '</div>';
       }
       body +=
-        '<div class="cipstep">'+
+        '<div class="cipstep'+(stepErr?' err':'')+'">'+
           '<div class="cipstep-top"><span class="cipstep-n">'+s.n+'</span><span class="cipstep-name">'+s.name+'</span></div>'+
           '<div class="cipstep-meta">'+cipStepMeta(s)+'</div>'+
           '<div class="cipstep-cycle">'+s.cycle+'</div>'+
@@ -1702,7 +1710,7 @@ function renderWashCip(lineId){
     });
     html +=
       '<div class="cipacc'+(cipOpenSec[secKey]?' open':'')+'">'+
-        accHead(secKey, group.sec, filled+'/'+group.items.length, filled===group.items.length)+
+        accHead(secKey, group.sec, (phOver ? '⚠ pH 초과 · ' : '')+filled+'/'+group.items.length, filled===group.items.length, phOver)+
         (cipOpenSec[secKey] ? '<div class="cipacc-body">'+body+'</div>' : '')+
       '</div>';
   });
