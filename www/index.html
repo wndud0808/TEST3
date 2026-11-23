@@ -516,7 +516,7 @@ var CI_LOGO_HTML = '<span class="ciword" aria-hidden="true">DAESANG</span>';
 function pad(n){ return String(n).padStart(2,'0'); }
 function fmtTime(d){ d=new Date(d); return pad(d.getHours())+':'+pad(d.getMinutes()); }
 function fmtDate(d){ d=new Date(d); return d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate()); }
-function fmtDateTime(d){ return fmtDate(d)+' '+fmtTime(d); }
+function fmtDateTime(d){ return d ? fmtDate(d)+' '+fmtTime(d) : '-'; }
 function dateKey(d){ d=new Date(d); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function todayStr(){ return dateKey(new Date()); }
 
@@ -2792,6 +2792,17 @@ function renderApprovers(lineId){
   if(old) old.remove();
 }
 
+/* Items start collapsed (a lone item starts open); each header shows its status. */
+var apprOpen = {};
+function apprItemOpen(slot, count){
+  return apprOpen[slot]===undefined ? count===1 : !!apprOpen[slot];
+}
+function toggleApprItem(slot){
+  var top = nav[nav.length-1];
+  var cur = apprItemOpen(slot, approvalItems(top.lineId).length);
+  apprOpen[slot] = !cur;
+  renderLineApproval(top.lineId, top.role);
+}
 /* The approver's sign-off screen: every item on the 호기 for the day */
 function renderLineApproval(lineId, roleKey){
   var label = approverLabel(roleKey);
@@ -2804,8 +2815,16 @@ function renderLineApproval(lineId, roleKey){
   }
   items.forEach(function(it){
     var st = it.job.status==='approved' ? '결재 완료' : it.job.status==='pending_approval' ? '결재 요청됨' : '결재 요청 전';
-    html += '<div class="eyebrow apprhead">품목선택 '+(it.slot+1)+' · '+it.job.product+' '+it.job.weight+' · '+st+'</div>'+
-      approvalItemHtml(lineId, it.slot, it.job);
+    var open = apprItemOpen(it.slot, items.length);
+    html +=
+      '<div class="cipacc'+(open?' open':'')+'">'+
+        '<button type="button" class="cipacc-head'+(it.job.status==='approved'?' done':'')+(it.job.status==='in_progress'?' warn':'')+'" aria-expanded="'+open+'" onclick="toggleApprItem('+it.slot+')">'+
+          '<span style="min-width:0;overflow-wrap:anywhere;">품목선택 '+(it.slot+1)+' · '+cipEsc(it.job.product+' '+it.job.weight)+'</span>'+
+          '<span class="cnt" style="flex:0 0 auto;font-family:inherit;">'+st+'</span>'+
+          '<span class="cipacc-chev">'+ICON.back+'</span>'+
+        '</button>'+
+        (open ? '<div class="cipacc-body">'+approvalItemHtml(lineId, it.slot, it.job)+'</div>' : '')+
+      '</div>';
   });
   var mine = data[roleKey];
   if(mine) html += sigImgHtml(label+' 서명', mine.signature);
