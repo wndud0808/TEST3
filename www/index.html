@@ -227,6 +227,8 @@ button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
 .appbar .rightaction:hover{background:var(--surface-2);}
 .appbar .navbtn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:0 0 auto;color:var(--text-secondary);}
 .appbar .navbtn:hover{background:var(--surface-2);}
+.warpbtn{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px;}
+.warpbtn svg{flex:0 0 auto;}
 .navlist{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto;}
 .navitem{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:12px;border:0.5px solid var(--border);background:var(--surface-2);text-align:left;font-size:14px;font-weight:500;color:var(--text-primary);}
 .navitem:hover{border-color:var(--primary);}
@@ -483,6 +485,7 @@ function visionCheckItems(lineId, product){
 }
 
 var ICON = {
+  warp:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg>',
   menu:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   chev:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
@@ -581,6 +584,7 @@ function attachSlotListener(dateStr, lineId, slot){
     if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
     state.byDate[dateStr].lines[lineId].slots[slot] = normalizeJob(snap.val());
     slotLoaded[key] = true;
+    if(dateStr===currentDateStr && navMenuOpen()) openNavMenu();
     var cipDate = cipScreenDate();
     if(cipDate!==null){ if(dateStr===cipDate) cipRefresh(); }
     else if(dateStr===currentDateStr) render();
@@ -694,14 +698,35 @@ function cipInitToday(){
 function navDestinations(){
   var admin = menuRole==='admin';
   var R = {screen:'role'}, M = {screen:'menu'}, W = {screen:'washChecklist'};
-  return [
+  var list = [
     { label:'처음 화면', depth:0, target:[R] },
     { label:'업무 선택', depth:1, target:[R, M] },
-    { label:GT_LOG_NAME, depth:2, target:[R, M, {screen: admin ? 'adminCalendar' : 'home'}], pre:function(){ if(!admin) adminMode = false; } },
+    { label:GT_LOG_NAME, depth:2, target:[R, M, {screen: admin ? 'adminCalendar' : 'home'}], pre:function(){ if(!admin) adminMode = false; } }
+  ];
+  /* items already entered in the journal for the day being worked on, so
+     they can be opened directly; admin gets the admin version of each */
+  var day = state.byDate[currentDateStr];
+  var suffix = currentDateStr===todayStr() ? '' : ' ('+currentDateStr.slice(5).replace('-', '.')+')';
+  if(day){
+    [1,2,3,4].forEach(function(lineId){
+      for(var slot=0; slot<4; slot++){
+        var job = day.lines[lineId].slots[slot];
+        if(!job) continue;
+        var t = {screen:'tracking', lineId:lineId, slot:slot};
+        list.push({
+          label:cipEsc(lineId+'호기 · '+job.product+' '+job.weight+suffix), depth:3,
+          target: admin ? [R, M, {screen:'adminCalendar'}, {screen:'home'}, t] : [R, M, {screen:'home'}, t],
+          pre:function(){ adminMode = admin; }
+        });
+      }
+    });
+  }
+  list.push(
     { label:'세척소독 체크리스트', depth:2, target:[R, M, W] },
     { label:'1호기 · 당류 CIP 체크리스트', depth:3, target:[R, M, W, {screen:'washCip', lineId:1}], pre:cipInitToday },
     { label:'2호기 · 당류 CIP 체크리스트', depth:3, target:[R, M, W, {screen:'washCip', lineId:2}], pre:cipInitToday }
-  ];
+  );
+  return list;
 }
 /* the admin login screen stays in the stack after signing in but isn't a
    place to go back to */
@@ -713,8 +738,11 @@ function navIsPrefix(path, target){
   for(var i=0; i<target.length; i++) if(!sameNav(path[i], target[i])) return false;
   return true;
 }
+var navDests = [];
+function navMenuOpen(){ return !document.getElementById('nav-overlay').hidden; }
 function openNavMenu(){
-  var dests = navDestinations();
+  attachDayListener(currentDateStr);
+  var dests = navDests = navDestinations();
   var path = navCurrentPath();
   var onIdx = -1;
   dests.forEach(function(d, i){
@@ -737,8 +765,37 @@ function openNavMenu(){
   document.getElementById('nav-overlay').hidden = false;
 }
 function closeNavMenu(){ document.getElementById('nav-overlay').hidden = true; }
+/* Warp between an item's journal screen and its CIP checklist. The target is
+   reached by its own normal path, so back goes to the screen above it
+   (not to where the warp started). */
+function warpToCip(lineId, slot){
+  var p = currentDateStr.split('-');
+  var dt = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+  var wd = (dt.getDay()+6)%7;
+  if(lineId>2 || wd>4) return;
+  cipWeekKey = cipMondayKey(dt); cipDayIdx = wd; cipSlotIdx = slot;
+  jumpTo([
+    {screen:'role'}, {screen:'menu'}, {screen:'washChecklist'},
+    {screen:'washCip', lineId:lineId},
+    {screen:'washCipItem', lineId:lineId, slot:slot, weekKey:cipWeekKey, dayIdx:wd}
+  ]);
+}
+function warpToJournal(lineId, slot){
+  var admin = menuRole==='admin';
+  currentDateStr = cipSelDateStr();
+  adminMode = admin;
+  var R = {screen:'role'}, M = {screen:'menu'}, T = {screen:'tracking', lineId:lineId, slot:slot};
+  jumpTo(admin ? [R, M, {screen:'adminCalendar'}, {screen:'home'}, T] : [R, M, {screen:'home'}, T]);
+}
+function cipWarpHtml(lineId, slot){
+  var p = currentDateStr.split('-');
+  var wd = (new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10)).getDay()+6)%7;
+  if(lineId>2) return '<div class="hint" style="margin:0;">3·4호기 CIP 체크리스트는 준비중이에요</div>';
+  if(wd>4) return '<div class="hint" style="margin:0;">CIP 체크리스트는 평일(월~금)에만 작성해요</div>';
+  return '<button type="button" class="btn btn-outline warpbtn" onclick="warpToCip('+lineId+','+slot+')">'+ICON.warp+'<span>이 품목의 CIP 체크리스트로 이동</span></button>';
+}
 function navGo(i){
-  var d = navDestinations()[i];
+  var d = navDests[i];
   if(!d) return;
   if(sameNav(navCurrentPath(), d.target)){ closeNavMenu(); return; }
   if(d.pre) d.pre();
@@ -1969,7 +2026,8 @@ function renderWashCipItem(lineId){
   var html =
     '<div class="cipitem-date">'+d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate())+' ('+CIP_DAYS[cipDayIdx]+')</div>'+
     cipGroupsHtml(sd)+
-    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>';
+    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>'+
+    '<button type="button" class="btn btn-outline warpbtn" onclick="warpToJournal('+lineId+','+top.slot+')">'+ICON.warp+'<span>이 품목의 소비기한 일지로 이동</span></button>';
   root.innerHTML = html;
 }
 function renderAdminLogin(){
@@ -2280,7 +2338,8 @@ function renderTracking(lineId, slot){
       '</div>'+
     '</div>'+
     '<div class="eyebrow">골든타임 체크포인트</div>'+
-    '<div class="cpgrid">'+CP_KEYS.map(function(k){ return cpTileHTML(lineId, slot, job, k); }).join('')+'</div>';
+    '<div class="cpgrid">'+CP_KEYS.map(function(k){ return cpTileHTML(lineId, slot, job, k); }).join('')+'</div>'+
+    cipWarpHtml(lineId, slot);
   document.getElementById('screen-root').innerHTML = html;
 
   var bar = document.getElementById('actionbar');
