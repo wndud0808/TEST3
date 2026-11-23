@@ -2361,20 +2361,262 @@ function loadImageSize(dataUri){
     img.src = dataUri;
   });
 }
-async function addCenteredImage(wb, ws, dataUri, colIndex0, rowIndex0, cellWpx, cellHpx){
-  var m = /^data:image\/(\w+);base64,(.+)$/.exec(dataUri);
+/* ---------------------------------------------------------------------
+   Excel export: fills the company's 작성 양식 (www/template.xlsx).
+   Sheets, per 호기 (1호기 and 2호기 only for now):
+     소비기한 골든타임일지(N호)  - one row per photographed checkpoint of the day
+     CIP 체크리스트(N호)         - the whole Mon-Fri week the day belongs to
+   Cell positions live in XL so a change of the form only touches this table.
+   --------------------------------------------------------------------- */
+var XL = {
+  lines: [1, 2],
+  journalSheet: function(lineId){ return '소비기한 골든타임일지('+lineId+'호)'; },
+  cipSheet: function(lineId){ return 'CIP 체크리스트('+lineId+'호)'; },
+  J: {
+    lineCell:'B6', dateCell:'G6',
+    roleCol:{ qa:11, gj:12, pm:13, qm:14 }, roleRow:4, roleRows:2,
+    firstRow:11, maxRows:17,
+    colProduct:2, colLabel:3, colVision:6, colPhoto:7, photoCols:3, colTime:10, colSign:13, signCols:2
+  },
+  C: {
+    yearCell:'A4', periodCell:'C4',
+    dayCol:9, itemRow:9, itemRows:3,
+    hotRow:13, causticRow:{ 1:19 }, copRow:{ 2:20 },
+    notesCell:{ 1:'A26', 2:'A24' },
+    approval:null   /* { col, row, ...} for the 담당/팀장 boxes - set once the final form has them */
+  }
+};
+
+/* EXPORT_FETCH_BEGIN */
+function xfRead(path){
+  return fbAuthReady.then(function(){ return fbdb.ref(path).get(); }).then(function(snap){ return snap.val(); });
+}
+/* EXPORT_FETCH_END */
+
+function xlColPx(ws, col1){ return excelColWidthToPx(ws.getColumn(col1).width || 8.43); }
+function xlRowPx(ws, row1){ return excelRowHeightToPx(ws.getRow(row1).height || 15); }
+/* zero-based fractional anchor for a pixel offset measured from the start of column/row n (1-based) */
+function xlAnchorCol(ws, col1, offPx){
+  var c = col1, off = offPx;
+  while(off >= xlColPx(ws, c) && c < col1+40){ off -= xlColPx(ws, c); c++; }
+  return (c-1) + off/xlColPx(ws, c);
+}
+function xlAnchorRow(ws, row1, offPx){
+  var r = row1, off = offPx;
+  while(off >= xlRowPx(ws, r) && r < row1+40){ off -= xlRowPx(ws, r); r++; }
+  return (r-1) + off/xlRowPx(ws, r);
+}
+/* Put an image centered in the block of nCols x nRows cells starting at (col1,row1).
+   The same picture (e.g. one signature used on many rows) is stored once. */
+async function xlImage(wb, ws, dataUri, col1, nCols, row1, nRows){
+  var m = /^data:image\/(\w+);base64,(.+)$/.exec(dataUri || '');
   if(!m) return;
-  var ext = m[1]==='jpg' ? 'jpeg' : m[1];
-  var size = await loadImageSize(dataUri);
-  var maxW = cellWpx*0.9, maxH = cellHpx*0.9;
-  var scale = Math.min(maxW/size.width, maxH/size.height);
-  var w = size.width*scale, h = size.height*scale;
-  var offX = (cellWpx-w)/2, offY = (cellHpx-h)/2;
-  var imgId = wb.addImage({ base64:m[2], extension:ext });
-  ws.addImage(imgId, {
-    tl: { col: colIndex0 + offX/cellWpx, row: rowIndex0 + offY/cellHpx },
+  wb.__xlImg = wb.__xlImg || {};
+  var rec = wb.__xlImg[dataUri];
+  if(!rec){
+    var size = await loadImageSize(dataUri);
+    rec = wb.__xlImg[dataUri] = { id: wb.addImage({ base64:m[2], extension: m[1]==='jpg' ? 'jpeg' : m[1] }), w:size.width, h:size.height };
+  }
+  var wPx = 0, hPx = 0, i;
+  for(i=0; i<nCols; i++) wPx += xlColPx(ws, col1+i);
+  for(i=0; i<nRows; i++) hPx += xlRowPx(ws, row1+i);
+  var scale = Math.min(wPx*0.92/rec.w, hPx*0.92/rec.h);
+  var w = rec.w*scale, h = rec.h*scale;
+  ws.addImage(rec.id, {
+    tl: { col: xlAnchorCol(ws, col1, (wPx-w)/2), row: xlAnchorRow(ws, row1, (hPx-h)/2) },
     ext: { width:w, height:h }
   });
+}
+function xlText(ws, row1, col1, text){
+  var cell = ws.getCell(row1, col1);
+  cell.value = text;
+  cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+}
+function xlDmy(dateStr){
+  var p = dateStr.split('-');
+  return { y:p[0], m:parseInt(p[1],10), d:parseInt(p[2],10) };
+}
+
+/* ---- 소비기한 골든타임일지 ---- */
+/* 영상검출기 작동여부: only the checks printed in the column heading
+   (캡/라벨/수축필름) count; all O -> O, any X -> X, nothing answered -> blank */
+function xlVisionMark(lineId, job, cp){
+  var items = visionCheckItems(lineId, job.product).filter(function(it){ return it==='캡' || it==='라벨' || it==='수축필름'; });
+  var any = false;
+  for(var i=0; i<items.length; i++){
+    var v = cp.vision && cp.vision[items[i]];
+    if(v==='X') return 'X';
+    if(v==='O') any = true;
+  }
+  return any ? 'O' : '';
+}
+async function xfApprovals(dateStr, lineId){
+  var k = approvalKey(dateStr, lineId);
+  if(approvalLoaded[k]) return approvalData[k] || {};
+  return normalizeApprovals(await xfRead('approvals/'+dateStr+'/'+lineId));
+}
+async function fillJournalSheet(wb, lineId, dateStr){
+  var ws = wb.getWorksheet(XL.journalSheet(lineId));
+  if(!ws) return { sheet:false, omitted:0 };
+  var J = XL.J;
+  ws.getCell(J.lineCell).value = '포장라인 : '+lineId+'호기';
+  var t = xlDmy(dateStr);
+  ws.getCell(J.dateCell).value = '        점검일자:   '+t.y+'   년    '+t.m+'   월    '+t.d+'   일';
+
+  var ap = await xfApprovals(dateStr, lineId);
+  var roles = Object.keys(J.roleCol);
+  for(var ri=0; ri<roles.length; ri++){
+    if(ap[roles[ri]]) await xlImage(wb, ws, ap[roles[ri]].signature, J.roleCol[roles[ri]], 1, J.roleRow, J.roleRows);
+  }
+
+  /* items in entry order (품목선택 1, 2, ...), checkpoints in time order; only photographed ones */
+  var day = state.byDate[dateStr];
+  var slots = day ? day.lines[lineId].slots : [];
+  var rows = [];
+  slots.forEach(function(job){
+    if(!job) return;
+    CP_KEYS.forEach(function(k){
+      var cp = job.checkpoints[k];
+      if(cp && cp.photo) rows.push({ job:job, key:k, cp:cp });
+    });
+  });
+  var count = Math.min(rows.length, J.maxRows);
+  for(var i=0; i<count; i++){
+    var r = J.firstRow + i, row = rows[i];
+    xlText(ws, r, J.colProduct, row.job.product+' '+row.job.weight);
+    xlText(ws, r, J.colLabel, CP_LABELS[row.key]);
+    xlText(ws, r, J.colVision, xlVisionMark(lineId, row.job, row.cp));
+    xlText(ws, r, J.colTime, row.cp.time ? fmtTime(row.cp.time) : '');
+    if(row.cp.photo.indexOf('data:')===0) await xlImage(wb, ws, row.cp.photo, J.colPhoto, J.photoCols, r, 1);
+    if(row.job.requesterSignature) await xlImage(wb, ws, row.job.requesterSignature, J.colSign, J.signCols, r, 1);
+  }
+  return { sheet:true, omitted:rows.length-count };
+}
+
+/* ---- CIP 체크리스트 (the Mon-Fri week of the exported day) ---- */
+async function xfDayItems(dateStr, lineId){
+  var local = state.byDate[dateStr], loaded = !!local, s;
+  for(s=0; s<4; s++) if(!slotLoaded[dateStr+'|'+lineId+'|'+s]) loaded = false;
+  var out = [];
+  if(loaded){
+    local.lines[lineId].slots.forEach(function(job, slot){
+      if(job) out.push({ slot:slot, product:job.product, weight:job.weight, signature:job.requesterSignature || null });
+    });
+    return out;
+  }
+  var base = 'days/'+dateStr+'/lines/'+lineId+'/slots/';
+  var prods = await Promise.all([0,1,2,3].map(function(n){ return xfRead(base+n+'/product'); }));
+  var weights = await Promise.all([0,1,2,3].map(function(n){ return prods[n] ? xfRead(base+n+'/weight') : null; }));
+  prods.forEach(function(p, n){
+    if(p) out.push({ slot:n, product:p, weight:weights[n] || '', signature:undefined, path:base+n });
+  });
+  return out;
+}
+async function xfItemSignature(item){
+  if(item.signature!==undefined) return item.signature;
+  item.signature = await xfRead(item.path+'/requesterSignature');
+  return item.signature;
+}
+async function cipExportData(lineId, dateStr){
+  var weekKey = cipMondayKey(cipParseKey(dateStr));
+  var dates = [];
+  for(var i=0; i<5; i++) dates.push(dateKey(cipDayDate(weekKey, i)));
+  var res = await Promise.all([
+    xfRead('cip/'+lineId+'/'+weekKey),
+    lineId===2 ? xfRead('cipCop/'+lineId) : null,
+    Promise.all(dates.map(function(d){ return xfDayItems(d, lineId); }))
+  ]);
+  return { weekKey:weekKey, dates:dates, week:normalizeCipWeek(res[0]), cycles:normalizeCopCycles(res[1]), items:res[2] };
+}
+/* One cell per step and day, whatever the number of items that day: any X -> X,
+   otherwise any O -> O; unanswered items are ignored. */
+function xlMark(values){
+  var anyO = false;
+  for(var i=0; i<values.length; i++){
+    if(values[i]==='X') return 'X';
+    if(values[i]==='O') anyO = true;
+  }
+  return anyO ? 'O' : '';
+}
+async function fillCipSheet(wb, lineId, dateStr){
+  var ws = wb.getWorksheet(XL.cipSheet(lineId));
+  if(!ws) return { sheet:false };
+  var C = XL.C;
+  var d = await cipExportData(lineId, dateStr);
+  var mon = xlDmy(d.dates[0]), fri = xlDmy(d.dates[4]);
+
+  ws.getCell(C.yearCell).value = mon.y;
+  ws.getCell(C.periodCell).value = '  '+mon.m+'  월   '+mon.d+'  일     ~     '+fri.m+'  월   '+fri.d+'  일';
+
+  /* items entered in the journal that day, top to bottom (a 4th item shares the last box) */
+  for(var i=0; i<5; i++){
+    var names = d.items[i].map(function(it){ return it.product+' '+it.weight; });
+    var boxes = names.slice(0, C.itemRows);
+    if(names.length>C.itemRows) boxes[C.itemRows-1] = names.slice(C.itemRows-1).join('\n');
+    for(var b=0; b<boxes.length; b++) xlText(ws, C.itemRow+b, C.dayCol+i, boxes[b]);
+  }
+
+  /* checklist marks */
+  var groups = cipGroups(lineId);
+  var blocks = [{ group:groups[0], row:C.hotRow }];
+  if(lineId===1) blocks.push({ group:groups[1], row:C.causticRow[1] });
+  blocks.forEach(function(blk){
+    blk.group.items.forEach(function(step, idx){
+      for(var di=0; di<5; di++){
+        var sds = d.week.days[di].slots;
+        var v;
+        if(step.ph){
+          var vals = sds.map(function(sd){ return sd.ph; }).filter(function(x){ return x!==''; });
+          v = vals.length===1 && isFinite(parseFloat(vals[0])) ? parseFloat(vals[0]) : vals.join(' / ');
+        } else {
+          v = xlMark(sds.map(function(sd){ return sd.steps[step.key]; }));
+        }
+        if(v!=='') xlText(ws, blk.row+idx, C.dayCol+di, v);
+      }
+    });
+  });
+
+  /* 2호기 가성 COP: marks go in the day the cycle was started */
+  var copStart = null;
+  if(lineId===2){
+    var cycles = d.cycles;
+    for(var ci=0; ci<5 && copStart===null; ci++) copStart = cipCopFind(cycles, d.dates[ci]);
+    d.dates.forEach(function(date, di){
+      if(!cycles[date]) return;
+      CIP_COP_STEPS.items.forEach(function(step, idx){
+        var v = cycles[date].steps[step.key];
+        if(v) xlText(ws, C.copRow[2]+idx, C.dayCol+di, v);
+      });
+    });
+  }
+
+  /* 특이사항: the week's notes, and for 2호기 the 가성 COP dates */
+  var extra = [];
+  if(d.week.notes) extra.push(d.week.notes);
+  if(copStart){
+    var cs = cipParseKey(copStart);
+    extra.push('가성 COP 진행일 : '+cipFmtYmd(cs)+'    차기 진행일 : '+cipFmtYmd(cipAddMonths(cs, 6)));
+  }
+  if(extra.length){
+    var nc = ws.getCell(C.notesCell[lineId]);
+    var lines = String(nc.text || '특이사항').split('\n');
+    nc.value = lines[0]+'\n'+extra.join('\n')+(lines.length>1 ? '\n'+lines.slice(1).join('\n') : '');
+  }
+
+  /* 결재 (담당 = the first item's user signature, 팀장 = the 생산팀장 sign-off) */
+  if(C.approval){
+    var ap = C.approval, sigOwner = null, sigLeader = null, ii, di2;
+    for(di2=0; di2<5 && !sigOwner; di2++){
+      for(ii=0; ii<d.items[di2].length && !sigOwner; ii++) sigOwner = await xfItemSignature(d.items[di2][ii]);
+    }
+    for(di2=0; di2<5 && !sigLeader; di2++){
+      var apd = await xfApprovals(d.dates[di2], lineId);
+      if(apd.pm) sigLeader = apd.pm.signature;
+    }
+    if(sigOwner) await xlImage(wb, ws, sigOwner, ap.ownerCol, ap.cols, ap.row, ap.rows);
+    if(sigLeader) await xlImage(wb, ws, sigLeader, ap.leaderCol, ap.cols, ap.row, ap.rows);
+  }
+  return { sheet:true };
 }
 
 async function exportDayExcel(dateStr){
@@ -2403,50 +2645,16 @@ async function exportDayExcel(dateStr){
   var templateBuffer = await resp.arrayBuffer();
   var wb = new ExcelJS.Workbook();
   await wb.xlsx.load(templateBuffer);
-  var day = state.byDate[dateStr];
 
-  for(var lineId=1; lineId<=4; lineId++){
-    var ws = wb.getWorksheet(lineId+'호기');
-    if(!ws) continue;
-    ws.getCell('C4').value = dateStr.replace(/-/g,'.');
-    var slots = day ? day.lines[lineId].slots : [null,null,null,null];
-    var photoColWpx = excelColWidthToPx(ws.getColumn(4).width || 13.3);
-    var sigColWpx = excelColWidthToPx(ws.getColumn(13).width || 10.4);
-    for(var i=0;i<4;i++){
-      var job = slots[i];
-      if(!job) continue;
-      var base = 6 + i*9;
-      ws.getCell('D'+base).value = job.product+' '+job.weight;
-
-      var timeRow = base+2, photoRow = base+3;
-      var visionRows = { '라벨':base+4, '캡':base+5, '소비기한':base+6, '수축필름':base+7 };
-      var applicableItems = visionCheckItems(lineId, job.product);
-      var photoRowHpx = excelRowHeightToPx(ws.getRow(photoRow).height || 89.4);
-
-      for(var ci=0; ci<CP_KEYS.length; ci++){
-        var key = CP_KEYS[ci];
-        var cp = job.checkpoints[key];
-        var col = String.fromCharCode(68+ci);
-
-        if(cp.time){ ws.getCell(col+timeRow).value = fmtTime(cp.time); }
-
-        if(cp.photo && cp.photo.indexOf('data:')===0){
-          await addCenteredImage(wb, ws, cp.photo, 3+ci, photoRow-1, photoColWpx, photoRowHpx);
-        }
-
-        applicableItems.forEach(function(item){
-          var v = cp.vision && cp.vision[item];
-          if(v) ws.getCell(col+visionRows[item]).value = v;
-        });
-      }
-
-      if(job.requesterSignature){
-        await addCenteredImage(wb, ws, job.requesterSignature, 12, photoRow-1, sigColWpx, photoRowHpx);
-      }
-      if(job.approverSignature){
-        await addCenteredImage(wb, ws, job.approverSignature, 13, photoRow-1, sigColWpx, photoRowHpx);
-      }
-    }
+  var omitted = [];
+  for(var li=0; li<XL.lines.length; li++){
+    var lineId = XL.lines[li];
+    var jr = await fillJournalSheet(wb, lineId, dateStr);
+    if(jr.omitted>0) omitted.push(lineId+'호기 '+jr.omitted+'줄');
+    await fillCipSheet(wb, lineId, dateStr);
+  }
+  if(omitted.length){
+    alert('양식의 작성 줄(17줄)을 넘어서 엑셀에 넣지 못한 내용이 있어요: '+omitted.join(', '));
   }
 
   var buffer = await wb.xlsx.writeBuffer();
