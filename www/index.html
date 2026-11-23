@@ -2477,6 +2477,16 @@ async function fillJournalSheet(wb, lineId, dateStr){
   ws.getCell(J.dateCell).value = '        점검일자:   '+t.y+'   년    '+t.m+'   월    '+t.d+'   일';
 
   var ap = await xfApprovals(dateStr, lineId);
+  /* Days signed off the old way (one admin signature per item, before the four-approver
+     line existed): that admin signature goes in the QA담당 box and the rest stay empty. */
+  var dayData = state.byDate[dateStr];
+  if(!Object.keys(ap).length && dayData){
+    var legacySig = null;
+    dayData.lines[lineId].slots.forEach(function(job){
+      if(!legacySig && job && job.approverSignature) legacySig = job.approverSignature;
+    });
+    if(legacySig) ap = { qa:{ signature:legacySig } };
+  }
   var roles = Object.keys(J.roleCol);
   for(var ri=0; ri<roles.length; ri++){
     if(ap[roles[ri]]) await xlImage(wb, ws, ap[roles[ri]].signature, J.roleCol[roles[ri]], 1, J.roleRow, J.roleRows);
