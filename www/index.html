@@ -255,6 +255,17 @@ button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
 .tilehead{display:flex;align-items:baseline;gap:4px;flex:0 0 auto;padding:0 2px;}
 .tilenum{font-family:var(--font-mono);font-size:22px;font-weight:700;line-height:1;color:var(--text-primary);}
 .tilelabel{font-size:11px;color:var(--text-muted);}
+.tileapprove{margin-left:auto;font-size:11px;font-weight:700;color:var(--on-primary);background:var(--primary);padding:4px 10px;border-radius:999px;}
+.apprlist{display:flex;flex-direction:column;gap:8px;}
+.apprrow{display:flex;align-items:center;gap:12px;width:100%;padding:16px 14px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);text-align:left;}
+.apprrow:hover{border-color:var(--primary);}
+.apprname{font-size:16px;font-weight:700;color:var(--text-primary);}
+.apprsub{margin-left:auto;font-size:11.5px;color:var(--text-muted);font-family:var(--font-mono);}
+.apprchev{display:flex;flex:0 0 auto;color:var(--text-muted);transform:rotate(180deg);}
+.apprlight{width:14px;height:14px;border-radius:50%;flex:0 0 auto;}
+.apprlight.on{background:var(--success);box-shadow:0 0 0 3px var(--success-bg), 0 0 8px var(--success);}
+.apprlight.off{background:var(--danger);box-shadow:0 0 0 3px var(--danger-bg), 0 0 8px var(--danger);}
+.apprhead{padding-top:6px;}
 .tiledelete{margin-left:auto;font-size:11px;font-weight:600;color:var(--danger);padding:3px 8px;border-radius:999px;border:1px solid var(--danger);}
 .slotlist{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:6px;}
 .slotrow{flex:1;min-width:0;min-height:0;width:100%;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;font-weight:500;color:var(--text-primary);}
@@ -825,12 +836,81 @@ function openCheckpoint(lineId, slot, key){
 }
 function openApproval(lineId, slot){ push({screen:'approval', lineId:lineId, slot:slot}); }
 
+/* 결재 is signed per 호기 for the day by four people, in any order. */
+var APPROVERS = [
+  { key:'qa', label:'QA담당' },
+  { key:'gj', label:'계장' },
+  { key:'pm', label:'생산팀장' },
+  { key:'qm', label:'QA팀장' }
+];
+function approverLabel(key){
+  for(var i=0; i<APPROVERS.length; i++) if(APPROVERS[i].key===key) return APPROVERS[i].label;
+  return key;
+}
+function normalizeApprovals(raw){
+  var out = {};
+  APPROVERS.forEach(function(a){
+    var r = raw && raw[a.key];
+    if(r && r.signature) out[a.key] = { signature:r.signature, at:r.at || null };
+  });
+  return out;
+}
+/* APPROVAL_DATA_BEGIN */
+var approvalData = {};
+var approvalLoaded = {};
+var approvalListeners = {};
+function approvalKey(dateStr, lineId){ return dateStr+'|'+lineId; }
+function approvalsFor(dateStr, lineId){
+  var k = approvalKey(dateStr, lineId);
+  if(!approvalData[k]) approvalData[k] = {};
+  if(!approvalListeners[k]){
+    approvalListeners[k] = true;
+    fbOn('approvals/'+dateStr+'/'+lineId, function(snap){
+      var first = !approvalLoaded[k];
+      approvalLoaded[k] = true;
+      var next = normalizeApprovals(snap.val());
+      var changed = JSON.stringify(next)!==JSON.stringify(approvalData[k]);
+      approvalData[k] = next;
+      if(first || changed) approvalRefresh(dateStr, lineId);
+    });
+  }
+  return approvalData[k];
+}
+function saveApproval(dateStr, lineId, roleKey){
+  fbSet('approvals/'+dateStr+'/'+lineId+'/'+roleKey, approvalData[approvalKey(dateStr, lineId)][roleKey] || null);
+}
+function clearApprovals(dateStr, lineId){
+  var k = approvalKey(dateStr, lineId);
+  if(!approvalData[k] || !Object.keys(approvalData[k]).length) return;
+  approvalData[k] = {};
+  fbSet('approvals/'+dateStr+'/'+lineId, null);
+}
+/* APPROVAL_DATA_END */
+function approvalRefresh(dateStr, lineId){
+  var top = nav[nav.length-1];
+  if(!top || dateStr!==currentDateStr) return;
+  if(top.screen==='home' || ((top.screen==='approvers' || top.screen==='lineApproval') && top.lineId===lineId)) render();
+}
+function approvalItems(lineId){
+  var out = [];
+  ensureDay(currentDateStr).lines[lineId].slots.forEach(function(job, slot){ if(job) out.push({ slot:slot, job:job }); });
+  return out;
+}
+/* nothing can be signed off until the worker has requested 결재 for every item */
+function approvalBlockers(items){
+  return items.filter(function(it){ return it.job.status==='in_progress'; });
+}
+function openApprovers(lineId){ push({screen:'approvers', lineId:lineId}); }
+function openLineApproval(lineId, roleKey){ push({screen:'lineApproval', lineId:lineId, role:roleKey}); }
+
 function requestApproval(lineId, slot){
   var job = getJob(lineId, slot);
   if(!approvalReady(job)) return;
   job.status='pending_approval';
   job.requestedAt = new Date().toISOString();
   saveState(lineId, slot);
+  /* the four sign-offs covered the items as they were; start over */
+  clearApprovals(currentDateStr, lineId);
   render();
 }
 
@@ -859,9 +939,29 @@ function openSignaturePad(lineId, slot, mode){
   document.getElementById('sign-overlay').hidden = false;
   requestAnimationFrame(setupSignatureCanvas);
 }
+var signPendingRole = null;
+function openRoleSignaturePad(lineId, roleKey){
+  var items = approvalItems(lineId);
+  if(!items.length || approvalBlockers(items).length) return;
+  signPendingLine = lineId; signPendingSlot = null; signPendingMode = 'role'; signPendingRole = roleKey;
+  var html =
+    '<div class="sheet">'+
+      '<h3>'+approverLabel(roleKey)+' 결재 서명</h3>'+
+      '<div class="signpad-wrap"><canvas id="sign-canvas"></canvas></div>'+
+      '<div class="hint" style="margin:0;">서명란에 직접 서명해 주세요</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="clearSignature()">지우기</button>'+
+        '<button class="btn btn-primary" id="sign-save-btn" disabled onclick="saveSignature()">저장하고 승인</button>'+
+      '</div>'+
+      '<button class="btn btn-outline" onclick="closeSignaturePad()">취소</button>'+
+    '</div>';
+  document.getElementById('sign-overlay').innerHTML = html;
+  document.getElementById('sign-overlay').hidden = false;
+  requestAnimationFrame(setupSignatureCanvas);
+}
 function closeSignaturePad(){
   document.getElementById('sign-overlay').hidden = true;
-  signPendingLine = null; signPendingSlot = null;
+  signPendingLine = null; signPendingSlot = null; signPendingRole = null;
 }
 function clearSignature(){
   var canvas = document.getElementById('sign-canvas');
@@ -900,6 +1000,13 @@ function setupSignatureCanvas(){
 }
 function saveSignature(){
   var canvas = document.getElementById('sign-canvas');
+  if(signPendingMode==='role'){
+    var rl = signPendingLine, rk = signPendingRole;
+    document.getElementById('sign-overlay').hidden = true;
+    signPendingLine = null; signPendingSlot = null; signPendingRole = null; signPendingMode = 'request';
+    approveAsRole(rl, rk, canvas.toDataURL('image/png'));
+    return;
+  }
   var job = getJob(signPendingLine, signPendingSlot);
   var ln = signPendingLine, sl = signPendingSlot, mode = signPendingMode;
   document.getElementById('sign-overlay').hidden = true;
@@ -911,6 +1018,28 @@ function saveSignature(){
     job.requesterSignature = canvas.toDataURL('image/png');
     requestApproval(ln, sl);
   }
+}
+/* Record one approver's signature. Once all four have signed, the requested
+   items count as approved (the last signer's details go on the item, which
+   is what the Excel export reads). */
+function approveAsRole(lineId, roleKey, signature){
+  var dateStr = currentDateStr;
+  var data = approvalsFor(dateStr, lineId);
+  data[roleKey] = { signature:signature, at:new Date().toISOString() };
+  saveApproval(dateStr, lineId, roleKey);
+  if(APPROVERS.every(function(a){ return data[a.key]; })){
+    var fin = data.qm;
+    ensureDay(dateStr).lines[lineId].slots.forEach(function(job, slot){
+      if(job && job.status==='pending_approval'){
+        job.status = 'approved';
+        job.approvedBy = 'QA팀장 (최종 결재)';
+        job.approvedAt = fin.at;
+        job.approverSignature = fin.signature;
+        saveState(lineId, slot);
+      }
+    });
+  }
+  render();
 }
 function approveJob(lineId, slot){
   var job = getJob(lineId, slot);
@@ -2384,13 +2513,19 @@ function toggleDeleteMode(lineId){
   deleteModeLine = (deleteModeLine===lineId) ? null : lineId;
   render();
 }
+function approveBtnHtml(lineId){
+  var data = approvalsFor(currentDateStr, lineId);
+  var n = APPROVERS.filter(function(a){ return !!data[a.key]; }).length;
+  return '<button class="tileapprove" onclick="openApprovers('+lineId+')">결재'+(n ? ' '+n+'/'+APPROVERS.length : '')+'</button>';
+}
 function renderHome(){
   renderAppBar(GT_LOG_NAME, {showBack:true, showDate:!adminMode});
   var html = '<div class="homegrid">';
   [1,2,3,4].forEach(function(id){
     var slots = ensureDay(currentDateStr).lines[id].slots;
     var deleting = deleteModeLine===id;
-    var deleteToggle = adminMode ? '' :
+    var hasItems = slots.some(function(j){ return !!j; });
+    var deleteToggle = adminMode ? (hasItems ? approveBtnHtml(id) : '') :
       '<button class="tiledelete" onclick="toggleDeleteMode('+id+')">'+(deleting?'취소':'삭제')+'</button>';
     html += '<div class="linetile">'+
       '<div class="tilehead"><span class="tilenum">'+id+'</span><span class="tilelabel">호기</span>'+deleteToggle+'</div>'+
@@ -2467,7 +2602,8 @@ function renderTracking(lineId, slot){
       '<button class="btn btn-outline" style="margin-top:10px;" onclick="openApproval('+lineId+','+slot+')">결재 내역 보기</button>';
   } else if(job.status==='pending_approval'){
     actionHTML = '<div class="banner banner-gold">'+ICON.badge+'<span>결재 대기 중 · '+fmtDateTime(job.requestedAt)+' 요청</span></div>'+
-      '<button class="btn btn-outline" style="margin-top:10px;" onclick="openApproval('+lineId+','+slot+')">결재 화면 열기</button>';
+      (adminMode ? '<div class="hint" style="margin:0;margin-top:10px;">결재는 호기 목록 화면의 \'결재\' 버튼에서 진행해요</div>'
+                 : '<button class="btn btn-outline" style="margin-top:10px;" onclick="openApproval('+lineId+','+slot+')">결재 화면 열기</button>');
   } else if(adminMode){
     actionHTML = '<div class="hint" style="margin:0;">아직 결재 요청 전인 항목이에요</div>';
   } else {
@@ -2501,6 +2637,7 @@ function deleteJob(lineId, slot){
   setJob(lineId, slot, null);
   saveState(lineId, slot);
   cipClearSlot(lineId, currentDateStr, slot);
+  if(!approvalItems(lineId).length) clearApprovals(currentDateStr, lineId);
   deleteModeLine = null;
   var top = nav[nav.length-1];
   if(top && top.screen==='tracking' && top.lineId===lineId && top.slot===slot){
@@ -2583,12 +2720,10 @@ function renderPhotoScreen(lineId, slot, key){
   document.getElementById('screen-root').innerHTML = html;
 }
 
-function renderApproval(lineId, slot){
-  var job = getJob(lineId, slot);
-  renderAppBar(lineId+'호기 · 결재', {showBack:true});
+/* One item's details as the approver sees them */
+function approvalItemHtml(lineId, slot, job){
   var calcStr = computeConsumeDisplay(currentDateStr, job.product);
-  var html =
-    '<div class="hero"><div class="eyebrow">소비기한</div><div class="heronum">'+calcStr+'</div>'+
+  return '<div class="hero"><div class="eyebrow">소비기한</div><div class="heronum">'+calcStr+'</div>'+
       '<div class="heromuted">'+currentDateStr.replace(/-/g,'.')+' 선택 기준 자동계산</div></div>'+
     '<div class="card"><div class="eyebrow" style="margin-bottom:6px;">생산 정보</div>'+
       '<div class="kv"><span class="k">호기</span><span class="v">'+lineId+'호기 · 품목선택 '+(slot+1)+'</span></div>'+
@@ -2604,27 +2739,87 @@ function renderApproval(lineId, slot){
     }).join('')+'</div>'+
     (job.requesterSignature ?
       '<div class="eyebrow">요청자 서명</div><img src="'+job.requesterSignature+'" alt="요청자 서명" style="width:100%;max-width:220px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:8px;">' :
-      '')+
-    (job.approverSignature ?
-      '<div class="eyebrow">승인자 서명</div><img src="'+job.approverSignature+'" alt="승인자 서명" style="width:100%;max-width:220px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:8px;">' :
       '');
-  document.getElementById('screen-root').innerHTML = html;
-
+}
+function sigImgHtml(label, src){
+  return '<div class="eyebrow">'+label+'</div><img src="'+src+'" alt="'+label+'" style="width:100%;max-width:220px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:8px;">';
+}
+function setActionBar(html){
   var old = document.getElementById('actionbar');
   if(old) old.remove();
-  var actionHTML;
-  if(job.status==='approved'){
-    actionHTML = '<div class="banner banner-success">'+ICON.badge+'<span>결재 완료 · '+job.approvedBy+' · '+fmtDateTime(job.approvedAt)+'</span></div>';
-  } else if(adminMode){
-    actionHTML = '<button class="btn btn-primary" onclick="openSignaturePad('+lineId+','+slot+',\'approve\')">결재 승인</button>'+
-      '<div class="hint">요청 시각 '+fmtDateTime(job.requestedAt)+'</div>';
-  } else {
-    actionHTML = '<div class="hint" style="margin:0;">관리자 승인을 기다리고 있어요 · 요청 시각 '+fmtDateTime(job.requestedAt)+'</div>';
-  }
   var actionbar = document.createElement('div');
   actionbar.className='actionbar'; actionbar.id='actionbar';
-  actionbar.innerHTML = actionHTML;
+  actionbar.innerHTML = html;
   document.querySelector('.phone').appendChild(actionbar);
+}
+function renderApproval(lineId, slot){
+  var job = getJob(lineId, slot);
+  renderAppBar(lineId+'호기 · 결재', {showBack:true});
+  document.getElementById('screen-root').innerHTML =
+    approvalItemHtml(lineId, slot, job)+
+    (job.approverSignature ? sigImgHtml('최종 승인자 서명', job.approverSignature) : '');
+  if(job.status==='approved'){
+    setActionBar('<div class="banner banner-success">'+ICON.badge+'<span>결재 완료 · '+job.approvedBy+' · '+fmtDateTime(job.approvedAt)+'</span></div>');
+  } else {
+    setActionBar('<div class="hint" style="margin:0;">관리자 승인을 기다리고 있어요 · 요청 시각 '+fmtDateTime(job.requestedAt)+'</div>');
+  }
+}
+
+/* 호기 결재: pick which of the four approvers is signing (green = signed) */
+function renderApprovers(lineId){
+  renderAppBar(lineId+'호기 · 결재', {showBack:true});
+  var data = approvalsFor(currentDateStr, lineId);
+  var items = approvalItems(lineId);
+  var done = APPROVERS.filter(function(a){ return !!data[a.key]; }).length;
+  var html =
+    '<div class="eyebrow">결재자 선택 · '+done+'/'+APPROVERS.length+' 완료</div>'+
+    '<div class="apprlist">'+
+      APPROVERS.map(function(a){
+        var d = data[a.key];
+        return '<button type="button" class="apprrow" onclick="openLineApproval('+lineId+',\''+a.key+'\')">'+
+          '<span class="apprlight '+(d ? 'on' : 'off')+'"></span>'+
+          '<span class="apprname">'+a.label+'</span>'+
+          '<span class="apprsub">'+(d ? '결재 완료 · '+fmtDateTime(d.at) : '결재 전')+'</span>'+
+          '<span class="apprchev">'+ICON.back+'</span>'+
+        '</button>';
+      }).join('')+
+    '</div>';
+  var blockers = approvalBlockers(items);
+  if(!items.length) html += '<div class="hint" style="margin:0;">이 호기에는 등록된 품목이 없어요</div>';
+  else if(blockers.length) html += '<div class="hint" style="margin:0;">결재 요청 전인 품목이 있어요 · 요청이 끝나야 승인할 수 있어요</div>';
+  document.getElementById('screen-root').innerHTML = html;
+  var old = document.getElementById('actionbar');
+  if(old) old.remove();
+}
+
+/* The approver's sign-off screen: every item on the 호기 for the day */
+function renderLineApproval(lineId, roleKey){
+  var label = approverLabel(roleKey);
+  renderAppBar(lineId+'호기 · '+label+' 결재', {showBack:true});
+  var data = approvalsFor(currentDateStr, lineId);
+  var items = approvalItems(lineId);
+  var html = '';
+  if(!items.length){
+    html = '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">이 호기에는 등록된 품목이 없어요</div>';
+  }
+  items.forEach(function(it){
+    var st = it.job.status==='approved' ? '결재 완료' : it.job.status==='pending_approval' ? '결재 요청됨' : '결재 요청 전';
+    html += '<div class="eyebrow apprhead">품목선택 '+(it.slot+1)+' · '+it.job.product+' '+it.job.weight+' · '+st+'</div>'+
+      approvalItemHtml(lineId, it.slot, it.job);
+  });
+  var mine = data[roleKey];
+  if(mine) html += sigImgHtml(label+' 서명', mine.signature);
+  document.getElementById('screen-root').innerHTML = html;
+
+  var blockers = approvalBlockers(items);
+  if(mine){
+    setActionBar('<div class="banner banner-success">'+ICON.badge+'<span>결재 완료 · '+label+' · '+fmtDateTime(mine.at)+'</span></div>');
+  } else if(items.length && !blockers.length){
+    setActionBar('<button class="btn btn-primary" onclick="openRoleSignaturePad('+lineId+',\''+roleKey+'\')">결재 승인</button>');
+  } else {
+    setActionBar('<button class="btn btn-primary" disabled>결재 승인</button>'+
+      '<div class="hint">'+(items.length ? '결재 요청 전인 품목이 있어요 (품목선택 '+(blockers[0].slot+1)+')' : '등록된 품목이 없어요')+'</div>');
+  }
 }
 
 function render(){
@@ -2647,6 +2842,8 @@ function render(){
   else if(top.screen==='tracking') renderTracking(top.lineId, top.slot);
   else if(top.screen==='photo') renderPhotoScreen(top.lineId, top.slot, top.key);
   else if(top.screen==='approval') renderApproval(top.lineId, top.slot);
+  else if(top.screen==='approvers') renderApprovers(top.lineId);
+  else if(top.screen==='lineApproval') renderLineApproval(top.lineId, top.role);
   document.getElementById('screen-root').scrollTop = 0;
 }
 
