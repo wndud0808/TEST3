@@ -156,6 +156,8 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .cipday{position:relative;}
 .cipday-dot{position:absolute;top:5px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 1.5px var(--surface-2);}
 .cipday.on .cipday-dot{box-shadow:0 0 0 1.5px var(--primary);}
+.cophint{font-size:11px;font-weight:400;line-height:1.35;color:var(--text-secondary);}
+.cipacc.open > .cipacc-head .cophint{color:var(--on-primary);}
 .cipitems{display:flex;flex-direction:column;gap:8px;}
 .cipitem{width:100%;display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);text-align:left;}
 .cipitem:hover{border-color:var(--primary);}
@@ -1670,6 +1672,26 @@ var CIP_STEPS = [
   ]}
 ];
 
+/* 2호기 uses its own form: 6 온수 steps per item, plus a 가성 COP block
+   (once per 6 months, not tied to an item) that sits under 특이사항. */
+var CIP_STEPS_L2 = [
+  { sec:'온수', items:[
+    { key:'h1', n:1, name:'온수 CIP', conc:'-', temp:'70 이상', time:'-', zone:'서비스TK', cycle:'작업 시작 전 / 품목교체시 / 작업 종료 후' },
+    { key:'h2', n:2, name:'온수 리사이클 및 드레인', conc:'-', temp:'70 이상', time:'20분', zone:'충전기', cycle:'서비스TK CIP 종료 후' },
+    { key:'h3', n:3, name:'알코올 소독', conc:'70', temp:'-', time:'-', zone:'충전기 / 서비스TK', cycle:'충전기 CIP 종료 후' },
+    { key:'h4', n:4, name:'제품 퍼지 및 QA팀 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'생산 시작 전' },
+    { key:'h5', n:5, name:'온수 CIP', conc:'-', temp:'70 이상', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' },
+    { key:'h6', n:6, name:'건조 및 알코올 소독', conc:'70', temp:'-', time:'-', zone:'노즐', cycle:'충전기 CIP 진행 시' }
+  ]}
+];
+var CIP_COP_STEPS = { sec:'가성 COP', items:[
+  { key:'p1', n:'1-1', name:'가성 COP(수산화나트륨)', conc:'1.5', temp:'70 이상', time:'60분 이상', zone:'노즐(1~24)', cycle:'1회 / 6개월' },
+  { key:'p2', n:2, name:'온수 COP', conc:'-', temp:'70 이상', time:'-', zone:'해당 노즐', cycle:'가성 COP 완료 후' },
+  { key:'p3', n:3, name:'건조 및 알코올 소독', conc:'70', temp:'-', time:'-', zone:'해당 노즐', cycle:'온수 COP 완료 후' },
+  { key:'p4', n:4, name:'제품 퍼지 및 QA팀 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'생산 시작 전' }
+]};
+function cipGroups(lineId){ return lineId===2 ? CIP_STEPS_L2 : CIP_STEPS; }
+
 function cipMondayKey(d){
   var x = new Date(d); x.setHours(0,0,0,0);
   x.setDate(x.getDate() - ((x.getDay()+6)%7));
@@ -1693,7 +1715,7 @@ function normalizeCipWeek(raw){
     var r = raw && raw.days && raw.days[i];
     var slots = [];
     for(var s=0;s<4;s++) slots.push(normalizeCipSlot(r && r.slots && r.slots[s]));
-    days.push({ slots:slots });
+    days.push({ slots:slots, cop:{ steps:normalizeCipSlot(r && r.cop).steps } });
   }
   return { days:days, notes:(raw && raw.notes) || '' };
 }
@@ -1719,6 +1741,9 @@ function cipEnsure(lineId, weekKey){
 }
 function cipSaveSlot(lineId, weekKey, dayIdx, slot){
   fbSet('cip/'+lineId+'/'+weekKey+'/days/'+dayIdx+'/slots/'+slot, cipData[cipKey(lineId, weekKey)].days[dayIdx].slots[slot]);
+}
+function cipSaveCop(lineId, weekKey, dayIdx){
+  fbSet('cip/'+lineId+'/'+weekKey+'/days/'+dayIdx+'/cop', cipData[cipKey(lineId, weekKey)].days[dayIdx].cop);
 }
 function cipSaveNotes(lineId, weekKey){
   fbSet('cip/'+lineId+'/'+weekKey+'/notes', cipData[cipKey(lineId, weekKey)].notes);
@@ -1865,6 +1890,12 @@ function cipSetStep(key, val){
   cipSaveSlot(c.lineId, cipWeekKey, cipDayIdx, cipSlotIdx);
   cipRefresh();
 }
+function cipSetCop(key, val){
+  var c = cipCur(); var steps = c.week.days[cipDayIdx].cop.steps;
+  if(steps[key]===val) delete steps[key]; else steps[key] = val;
+  cipSaveCop(c.lineId, cipWeekKey, cipDayIdx);
+  cipRefresh();
+}
 function cipSetPh(v){
   var c = cipCur(); cipCurSlot(c).ph = String(v).trim();
   cipSaveSlot(c.lineId, cipWeekKey, cipDayIdx, cipSlotIdx);
@@ -1885,10 +1916,10 @@ function cipStepMeta(s){
   parts.push(s.zone);
   return parts.join(' · ');
 }
-function cipAccHead(key, label, countText, isDone, isWarn){
+function cipAccHead(key, label, countText, isDone, isWarn, hint){
   var open = !!cipOpenSec[key];
   return '<button type="button" class="cipacc-head'+(isDone?' done':'')+(isWarn?' warn':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
-    '<span>'+label+'</span><span class="cnt">'+countText+'</span>'+
+    '<span>'+label+'</span>'+(hint ? '<span class="cophint">'+hint+'</span>' : '')+'<span class="cnt">'+countText+'</span>'+
     '<span class="cipacc-chev">'+ICON.back+'</span></button>';
 }
 function cipSecFilled(group, sd){
@@ -1897,46 +1928,46 @@ function cipSecFilled(group, sd){
 function cipDayPhOver(week, i){
   return week.days[i].slots.some(function(sd){ return cipPhOver(sd.ph); });
 }
-/* 온수 / 가성 collapsible tabs for one item's record */
-function cipGroupsHtml(sd){
+/* One step card. setter = the onclick handler name for its O/X buttons. */
+function cipStepCardHtml(s, sd, setter){
+  var control, stepErr = false;
+  if(s.ph){
+    var v = sd.ph;
+    var num = parseFloat(v);
+    var status = '';
+    if(v!=='' && !isNaN(num)){
+      status = num<=CIP_PH_LIMIT ? '<span class="cpmatch match" style="display:inline-block;">기준 이내</span>' : '';
+    }
+    stepErr = cipPhOver(v);
+    control =
+      '<div class="cipph">'+
+        '<input type="number" inputmode="decimal" step="0.1" class="textinput'+(stepErr?' err':'')+'" style="width:96px;height:38px;text-align:right;" placeholder="실측값" value="'+cipEsc(v)+'" onchange="cipSetPh(this.value)">'+
+        '<span class="cipph-limit">pH 기준 '+CIP_PH_LIMIT+' 이하</span>'+status+
+        (stepErr ? '<div class="cipph-err">⚠ 오류: pH '+cipEsc(v)+' — 기준('+CIP_PH_LIMIT+' 이하)을 초과했습니다. 값을 다시 확인하세요.</div>' : '')+
+      '</div>';
+  } else {
+    var val = sd.steps[s.key] || null;
+    control =
+      '<div class="cipox">'+
+        '<button type="button" class="btn '+(val==='O'?'btn-primary':'btn-outline')+'" onclick="'+setter+'(\''+s.key+'\',\'O\')">O</button>'+
+        '<button type="button" class="btn '+(val==='X'?'btn-primary':'btn-outline')+'" onclick="'+setter+'(\''+s.key+'\',\'X\')">X</button>'+
+      '</div>';
+  }
+  return '<div class="cipstep'+(stepErr?' err':'')+'">'+
+      '<div class="cipstep-top"><span class="cipstep-n">'+s.n+'</span><span class="cipstep-name">'+s.name+'</span></div>'+
+      '<div class="cipstep-meta">'+cipStepMeta(s)+'</div>'+
+      '<div class="cipstep-cycle">'+s.cycle+'</div>'+
+      control+
+    '</div>';
+}
+/* Collapsible tabs (온수, 가성 ...) for one item's record on this line */
+function cipGroupsHtml(lineId, sd){
   var html = '';
-  CIP_STEPS.forEach(function(group){
+  cipGroups(lineId).forEach(function(group){
     var filled = cipSecFilled(group, sd);
     var secKey = 'sec-'+group.sec;
     var phOver = group.items.some(function(s){ return s.ph && cipPhOver(sd.ph); });
-    var body = '';
-    group.items.forEach(function(s){
-      var control, stepErr = false;
-      if(s.ph){
-        var v = sd.ph;
-        var num = parseFloat(v);
-        var status = '';
-        if(v!=='' && !isNaN(num)){
-          status = num<=CIP_PH_LIMIT ? '<span class="cpmatch match" style="display:inline-block;">기준 이내</span>' : '';
-        }
-        stepErr = cipPhOver(v);
-        control =
-          '<div class="cipph">'+
-            '<input type="number" inputmode="decimal" step="0.1" class="textinput'+(stepErr?' err':'')+'" style="width:96px;height:38px;text-align:right;" placeholder="실측값" value="'+cipEsc(v)+'" onchange="cipSetPh(this.value)">'+
-            '<span class="cipph-limit">pH 기준 '+CIP_PH_LIMIT+' 이하</span>'+status+
-            (stepErr ? '<div class="cipph-err">⚠ 오류: pH '+cipEsc(v)+' — 기준('+CIP_PH_LIMIT+' 이하)을 초과했습니다. 값을 다시 확인하세요.</div>' : '')+
-          '</div>';
-      } else {
-        var val = sd.steps[s.key] || null;
-        control =
-          '<div class="cipox">'+
-            '<button type="button" class="btn '+(val==='O'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'O\')">O</button>'+
-            '<button type="button" class="btn '+(val==='X'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'X\')">X</button>'+
-          '</div>';
-      }
-      body +=
-        '<div class="cipstep'+(stepErr?' err':'')+'">'+
-          '<div class="cipstep-top"><span class="cipstep-n">'+s.n+'</span><span class="cipstep-name">'+s.name+'</span></div>'+
-          '<div class="cipstep-meta">'+cipStepMeta(s)+'</div>'+
-          '<div class="cipstep-cycle">'+s.cycle+'</div>'+
-          control+
-        '</div>';
-    });
+    var body = group.items.map(function(s){ return cipStepCardHtml(s, sd, 'cipSetStep'); }).join('');
     html +=
       '<div class="cipacc'+(cipOpenSec[secKey]?' open':'')+'">'+
         cipAccHead(secKey, group.sec, (phOver ? '⚠ pH 초과 · ' : '')+filled+'/'+group.items.length, filled===group.items.length, phOver)+
@@ -1944,6 +1975,30 @@ function cipGroupsHtml(sd){
       '</div>';
   });
   return html;
+}
+function cipFmtYmd(d){
+  return pad(d.getFullYear()%100)+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate());
+}
+/* month arithmetic that clamps to the end of a shorter month (Aug 31 + 6 -> Feb 28) */
+function cipAddMonths(d, n){
+  var y = d.getFullYear(), m = d.getMonth()+n;
+  var last = new Date(y, m+1, 0).getDate();
+  return new Date(y, m, Math.min(d.getDate(), last));
+}
+/* 가성 COP (2호기): O/X for the selected day. The day it was done is the
+   시행일, and the next one is due six months later. */
+function cipCopHtml(week){
+  var cop = week.days[cipDayIdx].cop;
+  var items = CIP_COP_STEPS.items;
+  var filled = items.filter(function(s){ return !!cop.steps[s.key]; }).length;
+  var d = cipDayDate(cipWeekKey, cipDayIdx);
+  var hint = filled ? '시행일 : '+cipFmtYmd(d)+'<br>차기 시행일 : '+cipFmtYmd(cipAddMonths(d, 6)) : '';
+  var sd = { ph:'', steps:cop.steps };
+  var body = items.map(function(s){ return cipStepCardHtml(s, sd, 'cipSetCop'); }).join('');
+  return '<div class="cipacc'+(cipOpenSec.cop?' open':'')+'">'+
+      cipAccHead('cop', CIP_COP_STEPS.sec, filled+'/'+items.length, filled===items.length, false, hint)+
+      (cipOpenSec.cop ? '<div class="cipacc-body">'+body+'</div>' : '')+
+    '</div>';
 }
 /* Week + day picker, then one row per item entered in the 소비기한 일지 for
    that day and line (derived live from the journal, so adding or deleting
@@ -1981,7 +2036,7 @@ function renderWashCip(lineId){
       if(!job) continue;
       var sd = dayData.slots[slot];
       var over = cipPhOver(sd.ph);
-      var prog = CIP_STEPS.map(function(g){ return g.sec+' '+cipSecFilled(g, sd)+'/'+g.items.length; }).join(' · ');
+      var prog = cipGroups(lineId).map(function(g){ return g.sec+' '+cipSecFilled(g, sd)+'/'+g.items.length; }).join(' · ');
       items +=
         '<button type="button" class="cipitem'+(over?' err':'')+'" onclick="openCipItem('+lineId+','+slot+')">'+
           '<span class="cipstep-n">'+(slot+1)+'</span>'+
@@ -2004,10 +2059,11 @@ function renderWashCip(lineId){
       (cipOpenSec.notes
         ? '<div class="cipacc-body"><textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+cipEsc(week.notes)+'</textarea></div>'
         : '')+
-    '</div>';
+    '</div>'+
+    (lineId===2 ? cipCopHtml(week) : '');
   document.getElementById('screen-root').innerHTML = html;
 }
-/* One item's 온수 / 가성 checklist for the chosen day */
+/* One item's checklist (the tabs of its line's form) for the chosen day */
 function renderWashCipItem(lineId){
   var top = nav[nav.length-1];
   cipWeekKey = top.weekKey; cipDayIdx = top.dayIdx; cipSlotIdx = top.slot;
@@ -2025,8 +2081,8 @@ function renderWashCipItem(lineId){
   var d = cipDayDate(cipWeekKey, cipDayIdx);
   var html =
     '<div class="cipitem-date">'+d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate())+' ('+CIP_DAYS[cipDayIdx]+')</div>'+
-    cipGroupsHtml(sd)+
-    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>'+
+    cipGroupsHtml(lineId, sd)+
+    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X'+(lineId===1 ? '<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하' : '')+'</div>'+
     '<button type="button" class="btn btn-outline warpbtn" onclick="warpToJournal('+lineId+','+top.slot+')">'+ICON.warp+'<span>이 품목의 소비기한 일지로 이동</span></button>';
   root.innerHTML = html;
 }
