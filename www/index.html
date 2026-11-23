@@ -298,6 +298,8 @@ button.wcal-day:not(:disabled):not(.inweek):hover{background:var(--surface-2);}
 .cpmatch{font-size:10px;font-weight:700;text-align:center;padding:3px 4px;border-radius:6px;}
 .cpmatch.match{background:var(--success-bg);color:var(--success);}
 .cpmatch.mismatch{background:var(--danger-bg);color:var(--danger);}
+.cpmatch.likely{background:var(--gold-bg);color:var(--gold-text);}
+.cpmatch.unreadable{background:var(--surface-2);color:var(--text-muted);}
 .cptile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;aspect-ratio:1/1;border-radius:14px;padding:8px;text-align:center;}
 .cptile.filled{background:var(--surface-2);border:0.5px solid var(--border);position:relative;}
 .cptile.filled img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:14px;}
@@ -1550,6 +1552,56 @@ function ocrEdgeColor(img, sx, sy, sw, sh){
   }
   return 'rgb('+Math.round(r/cnt)+','+Math.round(g/cnt)+','+Math.round(b/cnt)+')';
 }
+/* Pixel pass for hard photos (thin pale characters on glossy black film).
+   levels  - stretch the 1%-99% brightness range to the full range
+   invert  - dark characters on a light background, which text recognizers read best
+   thicken - grow the dark strokes (3x3 minimum); only meaningful together with invert */
+function ocrPostProcess(c, opts, region){
+  var ctx = c.getContext('2d');
+  var im = ctx.getImageData(0, 0, c.width, c.height), d = im.data, n = c.width*c.height;
+  var g = new Uint8ClampedArray(n), hist = new Uint32Array(256), i;
+  var rx0 = 0, ry0 = 0, rx1 = c.width, ry1 = c.height;
+  if(region){
+    rx0 = Math.round(region.x + region.w*0.12); rx1 = Math.round(region.x + region.w*0.88);
+    ry0 = Math.round(region.y + region.h*0.2);  ry1 = Math.round(region.y + region.h*0.8);
+  }
+  var counted = 0;
+  for(i=0; i<n; i++){
+    var v = (d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114) | 0;
+    g[i] = v;
+    var px = i % c.width, py = (i - px)/c.width;
+    if(px>=rx0 && px<rx1 && py>=ry0 && py<ry1){ hist[v]++; counted++; }
+  }
+  if(opts.levels){
+    var lo = 0, hi = 255, acc = 0, cut = Math.max(1, counted*0.01);
+    for(i=0; i<256; i++){ acc += hist[i]; if(acc>=cut){ lo = i; break; } }
+    acc = 0;
+    for(i=255; i>=0; i--){ acc += hist[i]; if(acc>=cut){ hi = i; break; } }
+    if(hi-lo<24){ hi = Math.min(255, lo+24); }
+    var span = hi-lo;
+    for(i=0; i<n; i++){ var sv = (g[i]-lo)/span; g[i] = sv<=0 ? 0 : (sv>=1 ? 255 : (sv*255)|0); }
+  }
+  if(opts.invert){ for(i=0; i<n; i++) g[i] = 255-g[i]; }
+  if(opts.thicken){
+    var w = c.width, h = c.height, out = new Uint8ClampedArray(n);
+    for(var y=0; y<h; y++){
+      for(var x=0; x<w; x++){
+        var m = 255;
+        for(var dy=-1; dy<=1; dy++){
+          var yy = y+dy; if(yy<0 || yy>=h) continue;
+          for(var dx=-1; dx<=1; dx++){
+            var xx = x+dx; if(xx<0 || xx>=w) continue;
+            var vv = g[yy*w+xx]; if(vv<m) m = vv;
+          }
+        }
+        out[y*w+x] = m;
+      }
+    }
+    g = out;
+  }
+  for(i=0; i<n; i++){ d[i*4] = d[i*4+1] = d[i*4+2] = g[i]; d[i*4+3] = 255; }
+  ctx.putImageData(im, 0, 0);
+}
 /* Build one transient OCR input image (never stored or synced).
    - Padding: the recognizer drops characters that touch the image edge,
      and the saved crop is tight around the date, so the first/last digit
@@ -1570,29 +1622,43 @@ function makeOcrImage(img, opts){
   ctx.fillStyle = ocrEdgeColor(img, sx, sy, sw, sh);
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(img, sx, sy, sw, sh, pad, pad, dw, dh);
+  if(opts.invert || opts.levels || opts.thicken) ocrPostProcess(c, opts, { x:pad, y:pad, w:dw, h:dh });
   return c.toDataURL('image/jpeg', 0.92);
 }
 /* Ordered attempts; the caller stops at the first one whose digits contain
    the expected date. Later (slower) attempts only run if earlier ones miss. */
 function ocrVariants(photoUri, orig){
-  function upscaleFor(img){
-    var up = Math.min(2, 2000/Math.max(img.naturalWidth, img.naturalHeight));
+  function upscaleFor(img, max){
+    var up = Math.min(max || 2, 2000/Math.max(img.naturalWidth, img.naturalHeight));
     return up < 1.05 ? 1 : up;
   }
   var v = [];
+  /* light-on-dark text: stretch the brightness range and invert (dark text on light) */
+  v.push(async function(){
+    var img = await ocrLoadImage(photoUri); if(!img) return null;
+    return makeOcrImage(img, { invert:true, levels:true, scale:upscaleFor(img, 1.5) });
+  });
+  /* ...and fatten the thin strokes */
+  v.push(async function(){
+    var img = await ocrLoadImage(photoUri); if(!img) return null;
+    return makeOcrImage(img, { invert:true, levels:true, thicken:true, scale:upscaleFor(img, 2) });
+  });
   v.push(async function(){
     var img = await ocrLoadImage(photoUri); if(!img) return null;
     return makeOcrImage(img, { enhance:true });
   });
   if(orig && orig.uri && orig.box){
     /* same area re-cut from the device-only original (more real detail than the saved 1280px crop) */
-    v.push(async function(){
+    var recut = async function(extra){
       var img = await ocrLoadImage(orig.uri); if(!img) return null;
       var b = orig.box, W = img.naturalWidth, H = img.naturalHeight;
       var crop = { x:Math.round(b.x*W), y:Math.round(b.y*H), w:Math.max(1, Math.round(b.w*W)), h:Math.max(1, Math.round(b.h*H)) };
       var up = Math.min(2, 2000/Math.max(crop.w, crop.h)); if(up < 1.05) up = 1;
-      return makeOcrImage(img, { crop:crop, scale:up, enhance:true });
-    });
+      var o = { crop:crop, scale:up }; for(var k in extra) o[k] = extra[k];
+      return makeOcrImage(img, o);
+    };
+    v.push(function(){ return recut({ invert:true, levels:true, thicken:true }); });
+    v.push(function(){ return recut({ enhance:true }); });
   }
   v.push(async function(){
     var img = await ocrLoadImage(photoUri); if(!img) return null;
@@ -1619,27 +1685,79 @@ async function ocrReadDataUri(plugins, dataUri){
     try{ await plugins.Filesystem.deleteFile({ path:fname, directory:'CACHE' }); }catch(e){}
   }
 }
+/* Minimum edit distance between `pat` and ANY substring of `text` (Sellers). */
+function ocrApproxDist(text, pat){
+  var m = pat.length, n = text.length, prev = [], cur = [], i, j;
+  for(i=0; i<=m; i++) prev[i] = i;
+  var best = prev[m];
+  for(j=1; j<=n; j++){
+    cur[0] = 0;
+    for(i=1; i<=m; i++){
+      var cost = pat.charAt(i-1)===text.charAt(j-1) ? 0 : 1;
+      cur[i] = Math.min(prev[i]+1, cur[i-1]+1, prev[i-1]+cost);
+    }
+    if(cur[m]<best) best = cur[m];
+    var t = prev; prev = cur; cur = t;
+  }
+  return best;
+}
+/* does the digit string hold a complete, valid-looking date (year 2025-2040)? */
+function ocrHasPlainDate(d){
+  for(var i=0; i+8<=d.length; i++){
+    var y = parseInt(d.substr(i,4),10), mo = parseInt(d.substr(i+4,2),10), da = parseInt(d.substr(i+6,2),10);
+    if(y>=2025 && y<=2040 && mo>=1 && mo<=12 && da>=1 && da<=31) return true;
+  }
+  return false;
+}
+/* What the OCR text says about the expected date (YYYYMMDD):
+   match      the full date, or the date without its leading "20"
+   likely     one or two digits off / cut off - a person should look (확인 필요)
+   mismatch   a complete, valid date that is clearly a different one (불일치)
+   unreadable too little or too garbled to tell (판독 불가) */
+function ocrJudge(text, expected){
+  var d = ocrDigitsOnly(text);
+  if(!d) return { status:'unreadable', dist:9, digits:0 };
+  if(d.indexOf(expected)>=0 || d.indexOf(expected.slice(2))>=0) return { status:'match', dist:0, digits:d.length };
+  var dist = ocrApproxDist(d, expected);
+  if(d.length>=6 && dist<=2) return { status:'likely', dist:dist, digits:d.length };
+  if(ocrHasPlainDate(d)) return { status:'mismatch', dist:dist, digits:d.length };
+  return { status:'unreadable', dist:dist, digits:d.length };
+}
+var OCR_RANK = { match:4, likely:3, mismatch:2, unreadable:1 };
+function ocrScore(j, text){
+  if(!text) return 0;
+  return OCR_RANK[j.status]*100 - j.dist*4 + Math.min(j.digits, 12);
+}
+var ocrPending = {};
 async function runOcrCheck(lineId, slot, key, orig){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
   var job = getJob(lineId, slot);
   var cp = job.checkpoints[key];
   if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
-  var expectedDigits = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
-  var variants = ocrVariants(cp.photo, orig);
-  var bestText = '', bestDigits = '', matched = false;
-  for(var i=0; i<variants.length && !matched; i++){
-    var uri;
-    try{ uri = await variants[i](); }catch(e){ uri = null; }
-    if(!uri) continue;
-    var text = await ocrReadDataUri(plugins, uri);
-    var digits = ocrDigitsOnly(text);
-    if(digits.indexOf(expectedDigits)>=0){ matched = true; bestText = text; bestDigits = digits; }
-    else if(digits.length > bestDigits.length){ bestText = text; bestDigits = digits; }
+  var pk = currentDateStr+'|'+lineId+'|'+slot+'|'+key;
+  ocrPending[pk] = true;
+  try{
+    var expected = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
+    var variants = ocrVariants(cp.photo, orig);
+    var best = null;
+    for(var i=0; i<variants.length; i++){
+      var uri;
+      try{ uri = await variants[i](); }catch(e){ uri = null; }
+      if(!uri) continue;
+      var text = await ocrReadDataUri(plugins, uri);
+      var j = ocrJudge(text, expected);
+      var score = ocrScore(j, text);
+      if(!best || score>best.score) best = { text:text, j:j, score:score };
+      if(j.status==='match') break;
+    }
+    cp.ocrText = (best && best.text) || null;
+    /* kept for older app versions, which only know match / mismatch */
+    cp.ocrMatch = (best && best.j.status==='match') ? 'match' : (cp.ocrText ? 'mismatch' : null);
+    saveState(lineId, slot);
+  } finally {
+    delete ocrPending[pk];
   }
-  cp.ocrText = bestText || null;
-  cp.ocrMatch = matched ? 'match' : (bestText ? 'mismatch' : null);
-  saveState(lineId, slot);
   render();
 }
 
@@ -1659,11 +1777,14 @@ function renderAppBar(title, opts){
     (opts.showDate ? '<input type="date" class="datepick" value="'+currentDateStr+'" max="'+todayStr()+'" onchange="onDateChange(this.value)" aria-label="날짜 선택">' : '');
 }
 
-function ocrMatchStatus(cp){
+var OCR_LABELS = { match:'일치', likely:'확인 필요', mismatch:'불일치', unreadable:'판독 불가' };
+/* Judged from the saved OCR text each time, so rule changes also apply to older records. */
+function ocrMatchStatus(cp, job, lineId, slot, key){
   if(!cp.photo) return null;
-  if(cp.ocrMatch) return cp.ocrMatch;
-  if(!cp.time) return null;
-  return (dateKey(cp.time)===currentDateStr) ? 'match' : 'mismatch';
+  if(ocrPending[currentDateStr+'|'+lineId+'|'+slot+'|'+key]) return null;
+  if(!cp.ocrText) return 'unreadable';
+  var expected = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
+  return ocrJudge(cp.ocrText, expected).status;
 }
 
 function cpTileHTML(lineId, slot, job, key){
@@ -1690,8 +1811,8 @@ function cpTileHTML(lineId, slot, job, key){
     tile = '<button class="cptile active" onclick="openCheckpoint('+lineId+','+slot+',\''+key+'\')">'+ICON.camerasm+'<span class="cplabel">'+label+'</span><span class="cptime">'+timeText+'</span></button>';
   }
 
-  var status = ocrMatchStatus(cp);
-  var badge = status ? '<div class="cpmatch '+status+'">'+(status==='match'?'일치':'불일치')+'</div>' : '';
+  var status = ocrMatchStatus(cp, job, lineId, slot, key);
+  var badge = status ? '<div class="cpmatch '+status+'">'+OCR_LABELS[status]+'</div>' : '';
   return '<div class="cpwrap">'+tile+badge+'</div>';
 }
 
@@ -2914,8 +3035,8 @@ function renderPhotoScreen(lineId, slot, key){
 
   var ocrRow = '';
   if(cp.photo && (cp.ocrText || cp.ocrMatch)){
-    var ocrStatus = ocrMatchStatus(cp);
-    var ocrBadge = ocrStatus ? '<span class="cpmatch '+ocrStatus+'" style="display:inline-block;margin-top:4px;">'+(ocrStatus==='match'?'일치':'불일치')+'</span>' : '';
+    var ocrStatus = ocrMatchStatus(cp, job, lineId, slot, key);
+    var ocrBadge = ocrStatus ? '<span class="cpmatch '+ocrStatus+'" style="display:inline-block;margin-top:4px;">'+OCR_LABELS[ocrStatus]+'</span>' : '';
     ocrRow = '<div class="timerow" style="align-items:flex-start;flex-direction:column;gap:4px;">'+
       '<span class="k">OCR 인식 텍스트</span>'+
       '<span class="v" style="font-family:var(--font-mono);font-size:12px;white-space:normal;word-break:break-all;">'+(cp.ocrText || '날짜를 못 읽었어요')+'</span>'+
