@@ -2349,7 +2349,7 @@ function arrayBufferToBase64(buffer){
    using the standard Calibri-11 default-digit-width approximation -
    needed to center images inside a cell by pixel offset. */
 function excelColWidthToPx(widthChars){
-  var mdw = 7;
+  var mdw = (typeof XL!=='undefined' && XL.mdw) || 7;
   return Math.round(((256*widthChars + Math.trunc(128/mdw)) / 256) * mdw);
 }
 function excelRowHeightToPx(heightPt){ return heightPt * 96/72; }
@@ -2369,6 +2369,7 @@ function loadImageSize(dataUri){
    Cell positions live in XL so a change of the form only touches this table.
    --------------------------------------------------------------------- */
 var XL = {
+  mdw: 8,   /* max digit width (px) of the form's default font */
   lines: [1, 2],
   journalSheet: function(lineId){ return '소비기한 골든타임일지('+lineId+'호)'; },
   cipSheet: function(lineId){ return 'CIP 체크리스트('+lineId+'호)'; },
@@ -2383,7 +2384,9 @@ var XL = {
     dayCol:9, itemRow:9, itemRows:3,
     hotRow:13, causticRow:{ 1:19 }, copRow:{ 2:20 },
     notesCell:{ 1:'A26', 2:'A24' },
-    approval:null   /* { col, row, ...} for the 담당/팀장 boxes - set once the final form has them */
+    /* the 결재 box on the CIP sheets is a picture at the top right; these are its
+       담당 / 팀장 signature areas as fractions of the picture */
+    approval:{ ownerX0:0.1265, ownerX1:0.563, leaderX1:1.0, y0:0.236 }
   }
 };
 
@@ -2394,21 +2397,20 @@ function xfRead(path){
 /* EXPORT_FETCH_END */
 
 function xlColPx(ws, col1){ return excelColWidthToPx(ws.getColumn(col1).width || 8.43); }
-function xlRowPx(ws, row1){ return excelRowHeightToPx(ws.getRow(row1).height || 15); }
-/* zero-based fractional anchor for a pixel offset measured from the start of column/row n (1-based) */
-function xlAnchorCol(ws, col1, offPx){
-  var c = col1, off = offPx;
-  while(off >= xlColPx(ws, c) && c < col1+40){ off -= xlColPx(ws, c); c++; }
-  return (c-1) + off/xlColPx(ws, c);
+function xlRowPx(ws, row1){ return excelRowHeightToPx(ws.getRow(row1).height || (ws.properties && ws.properties.defaultRowHeight) || 15); }
+/* px from the sheet's left / top edge to the start of column / row n (1-based) */
+function xlColLeft(ws, col1){ var x = 0; for(var c=1; c<col1; c++) x += xlColPx(ws, c); return x; }
+function xlRowTop(ws, row1){ var y = 0; for(var r=1; r<row1; r++) y += xlRowPx(ws, r); return y; }
+/* cell + EMU offset for an absolute pixel position on the sheet */
+function xlAnchorAt(ws, xPx, yPx){
+  var c = 1, x = xPx, r = 1, y = yPx;
+  while(x >= xlColPx(ws, c) && c < 300){ x -= xlColPx(ws, c); c++; }
+  while(y >= xlRowPx(ws, r) && r < 2000){ y -= xlRowPx(ws, r); r++; }
+  return { nativeCol:c-1, nativeColOff:Math.round(x*9525), nativeRow:r-1, nativeRowOff:Math.round(y*9525) };
 }
-function xlAnchorRow(ws, row1, offPx){
-  var r = row1, off = offPx;
-  while(off >= xlRowPx(ws, r) && r < row1+40){ off -= xlRowPx(ws, r); r++; }
-  return (r-1) + off/xlRowPx(ws, r);
-}
-/* Put an image centered in the block of nCols x nRows cells starting at (col1,row1).
+/* Place an image centered in the absolute rectangle (x0,y0,wPx,hPx).
    The same picture (e.g. one signature used on many rows) is stored once. */
-async function xlImage(wb, ws, dataUri, col1, nCols, row1, nRows){
+async function xlImageAt(wb, ws, dataUri, x0, y0, wPx, hPx){
   var m = /^data:image\/(\w+);base64,(.+)$/.exec(dataUri || '');
   if(!m) return;
   wb.__xlImg = wb.__xlImg || {};
@@ -2417,15 +2419,26 @@ async function xlImage(wb, ws, dataUri, col1, nCols, row1, nRows){
     var size = await loadImageSize(dataUri);
     rec = wb.__xlImg[dataUri] = { id: wb.addImage({ base64:m[2], extension: m[1]==='jpg' ? 'jpeg' : m[1] }), w:size.width, h:size.height };
   }
+  var scale = Math.min(wPx*0.92/rec.w, hPx*0.92/rec.h);
+  var w = rec.w*scale, h = rec.h*scale;
+  ws.addImage(rec.id, { tl: xlAnchorAt(ws, x0 + (wPx-w)/2, y0 + (hPx-h)/2), ext: { width:w, height:h } });
+}
+/* ...centered in the block of nCols x nRows cells starting at (col1,row1) */
+async function xlImage(wb, ws, dataUri, col1, nCols, row1, nRows){
   var wPx = 0, hPx = 0, i;
   for(i=0; i<nCols; i++) wPx += xlColPx(ws, col1+i);
   for(i=0; i<nRows; i++) hPx += xlRowPx(ws, row1+i);
-  var scale = Math.min(wPx*0.92/rec.w, hPx*0.92/rec.h);
-  var w = rec.w*scale, h = rec.h*scale;
-  ws.addImage(rec.id, {
-    tl: { col: xlAnchorCol(ws, col1, (wPx-w)/2), row: xlAnchorRow(ws, row1, (hPx-h)/2) },
-    ext: { width:w, height:h }
-  });
+  await xlImageAt(wb, ws, dataUri, xlColLeft(ws, col1), xlRowTop(ws, row1), wPx, hPx);
+}
+/* bounding box (px) of a picture already on the sheet */
+function xlPictureRect(ws, pic){
+  var tl = pic.range.tl, x = xlColLeft(ws, tl.nativeCol+1) + tl.nativeColOff/9525, y = xlRowTop(ws, tl.nativeRow+1) + tl.nativeRowOff/9525;
+  var w, h, br = pic.range.br;
+  if(br){
+    w = xlColLeft(ws, br.nativeCol+1) + br.nativeColOff/9525 - x;
+    h = xlRowTop(ws, br.nativeRow+1) + br.nativeRowOff/9525 - y;
+  } else { w = pic.range.ext.width; h = pic.range.ext.height; }
+  return { x:x, y:y, w:w, h:h };
 }
 function xlText(ws, row1, col1, text){
   var cell = ws.getCell(row1, col1);
@@ -2601,11 +2614,16 @@ async function fillCipSheet(wb, lineId, dateStr){
     var nc = ws.getCell(C.notesCell[lineId]);
     var lines = String(nc.text || '특이사항').split('\n');
     nc.value = lines[0]+'\n'+extra.join('\n')+(lines.length>1 ? '\n'+lines.slice(1).join('\n') : '');
+    var shown = lines.length;
+    extra.forEach(function(e){ shown += Math.max(1, Math.ceil(e.length/70)); });
+    var noteRow = ws.getRow(nc.row);
+    noteRow.height = Math.max(noteRow.height || 0, shown*26);
   }
 
   /* 결재 (담당 = the first item's user signature, 팀장 = the 생산팀장 sign-off) */
-  if(C.approval){
-    var ap = C.approval, sigOwner = null, sigLeader = null, ii, di2;
+  var pics = ws.getImages ? ws.getImages() : [];
+  if(C.approval && pics.length){
+    var ap = C.approval, rc = xlPictureRect(ws, pics[0]), sigOwner = null, sigLeader = null, ii, di2;
     for(di2=0; di2<5 && !sigOwner; di2++){
       for(ii=0; ii<d.items[di2].length && !sigOwner; ii++) sigOwner = await xfItemSignature(d.items[di2][ii]);
     }
@@ -2613,8 +2631,9 @@ async function fillCipSheet(wb, lineId, dateStr){
       var apd = await xfApprovals(d.dates[di2], lineId);
       if(apd.pm) sigLeader = apd.pm.signature;
     }
-    if(sigOwner) await xlImage(wb, ws, sigOwner, ap.ownerCol, ap.cols, ap.row, ap.rows);
-    if(sigLeader) await xlImage(wb, ws, sigLeader, ap.leaderCol, ap.cols, ap.row, ap.rows);
+    var y0 = rc.y + rc.h*ap.y0, hh = rc.h*(1-ap.y0);
+    if(sigOwner) await xlImageAt(wb, ws, sigOwner, rc.x + rc.w*ap.ownerX0, y0, rc.w*(ap.ownerX1-ap.ownerX0), hh);
+    if(sigLeader) await xlImageAt(wb, ws, sigLeader, rc.x + rc.w*ap.ownerX1, y0, rc.w*(ap.leaderX1-ap.ownerX1), hh);
   }
   return { sheet:true };
 }
