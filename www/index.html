@@ -1685,7 +1685,7 @@ var CIP_STEPS_L2 = [
   ]}
 ];
 var CIP_COP_STEPS = { sec:'가성 COP', items:[
-  { key:'p1', n:'1-1', name:'가성 COP(수산화나트륨)', conc:'1.5', temp:'70 이상', time:'60분 이상', zone:'노즐(1~24)', cycle:'1회 / 6개월' },
+  { key:'p1', n:1, name:'가성 COP(수산화나트륨)', conc:'1.5', temp:'70 이상', time:'60분 이상', zone:'노즐(1~24)', cycle:'1회 / 6개월' },
   { key:'p2', n:2, name:'온수 COP', conc:'-', temp:'70 이상', time:'-', zone:'해당 노즐', cycle:'가성 COP 완료 후' },
   { key:'p3', n:3, name:'건조 및 알코올 소독', conc:'70', temp:'-', time:'-', zone:'해당 노즐', cycle:'온수 COP 완료 후' },
   { key:'p4', n:4, name:'제품 퍼지 및 QA팀 확인', conc:'-', temp:'-', time:'-', zone:'충전기', cycle:'생산 시작 전' }
@@ -1715,9 +1715,22 @@ function normalizeCipWeek(raw){
     var r = raw && raw.days && raw.days[i];
     var slots = [];
     for(var s=0;s<4;s++) slots.push(normalizeCipSlot(r && r.slots && r.slots[s]));
-    days.push({ slots:slots, cop:{ steps:normalizeCipSlot(r && r.cop).steps } });
+    days.push({ slots:slots });
   }
   return { days:days, notes:(raw && raw.notes) || '' };
+}
+
+/* 가성 COP runs on a 6-month cycle, so it is stored per line as cycles keyed
+   by their 시행일 (the day it was first filled in), not inside a week. */
+function normalizeCopCycles(raw){
+  var out = {};
+  Object.keys(raw || {}).forEach(function(start){
+    var steps = {};
+    var rs = raw[start] && raw[start].steps;
+    if(rs){ Object.keys(rs).forEach(function(k){ if(rs[k]) steps[k] = rs[k]; }); }
+    if(Object.keys(steps).length) out[start] = { steps:steps };
+  });
+  return out;
 }
 
 /* CIP_DATA_BEGIN */
@@ -1742,8 +1755,27 @@ function cipEnsure(lineId, weekKey){
 function cipSaveSlot(lineId, weekKey, dayIdx, slot){
   fbSet('cip/'+lineId+'/'+weekKey+'/days/'+dayIdx+'/slots/'+slot, cipData[cipKey(lineId, weekKey)].days[dayIdx].slots[slot]);
 }
-function cipSaveCop(lineId, weekKey, dayIdx){
-  fbSet('cip/'+lineId+'/'+weekKey+'/days/'+dayIdx+'/cop', cipData[cipKey(lineId, weekKey)].days[dayIdx].cop);
+var copData = {};
+var copLoaded = {};
+var copListeners = {};
+function cipCopEnsure(lineId){
+  if(!copData[lineId]) copData[lineId] = {};
+  if(!copListeners[lineId]){
+    copListeners[lineId] = true;
+    fbOn('cipCop/'+lineId, function(snap){
+      var first = !copLoaded[lineId];
+      copLoaded[lineId] = true;
+      var next = normalizeCopCycles(snap.val());
+      var changed = JSON.stringify(next)!==JSON.stringify(copData[lineId]);
+      copData[lineId] = next;
+      var top = nav[nav.length-1];
+      if((first || changed) && top && top.screen==='washCip' && top.lineId===lineId) cipRefresh();
+    });
+  }
+  return copData[lineId];
+}
+function cipSaveCop(lineId, startKey){
+  fbSet('cipCop/'+lineId+'/'+startKey, copData[lineId][startKey] || null);
 }
 function cipSaveNotes(lineId, weekKey){
   fbSet('cip/'+lineId+'/'+weekKey+'/notes', cipData[cipKey(lineId, weekKey)].notes);
@@ -1890,10 +1922,28 @@ function cipSetStep(key, val){
   cipSaveSlot(c.lineId, cipWeekKey, cipDayIdx, cipSlotIdx);
   cipRefresh();
 }
+/* The cycle that covers a date: started on or before it, and the next
+   시행일 (start + 6 months) is still after it. From the 차기 시행일 on, the
+   old cycle no longer covers the day, so the tab starts blank again. */
+function cipCopFind(cycles, dateStr){
+  var best = null;
+  Object.keys(cycles).forEach(function(start){
+    var due = dateKey(cipAddMonths(cipParseKey(start), 6));
+    if(start<=dateStr && dateStr<due && (best===null || start>best)) best = start;
+  });
+  return best;
+}
 function cipSetCop(key, val){
-  var c = cipCur(); var steps = c.week.days[cipDayIdx].cop.steps;
+  var c = cipCur();
+  if(!copLoaded[c.lineId]) return;
+  var cycles = cipCopEnsure(c.lineId);
+  var day = cipSelDateStr();
+  var start = cipCopFind(cycles, day);
+  if(start===null){ start = day; cycles[start] = { steps:{} }; }
+  var steps = cycles[start].steps;
   if(steps[key]===val) delete steps[key]; else steps[key] = val;
-  cipSaveCop(c.lineId, cipWeekKey, cipDayIdx);
+  if(!Object.keys(steps).length) delete cycles[start];
+  cipSaveCop(c.lineId, start);
   cipRefresh();
 }
 function cipSetPh(v){
@@ -1976,6 +2026,10 @@ function cipGroupsHtml(lineId, sd){
   });
   return html;
 }
+function cipParseKey(s){
+  var p = s.split('-');
+  return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+}
 function cipFmtYmd(d){
   return pad(d.getFullYear()%100)+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate());
 }
@@ -1985,15 +2039,22 @@ function cipAddMonths(d, n){
   var last = new Date(y, m+1, 0).getDate();
   return new Date(y, m, Math.min(d.getDate(), last));
 }
-/* 가성 COP (2호기): O/X for the selected day. The day it was done is the
-   시행일, and the next one is due six months later. */
-function cipCopHtml(week){
-  var cop = week.days[cipDayIdx].cop;
+/* 가성 COP (2호기): O/X checks that stay filled in from the 시행일 until the
+   차기 시행일 (six months later), whichever day or week is being viewed. */
+function cipCopHtml(lineId){
   var items = CIP_COP_STEPS.items;
-  var filled = items.filter(function(s){ return !!cop.steps[s.key]; }).length;
-  var d = cipDayDate(cipWeekKey, cipDayIdx);
-  var hint = filled ? '시행일 : '+cipFmtYmd(d)+'<br>차기 시행일 : '+cipFmtYmd(cipAddMonths(d, 6)) : '';
-  var sd = { ph:'', steps:cop.steps };
+  var cycles = cipCopEnsure(lineId);
+  var loaded = !!copLoaded[lineId];
+  var start = loaded ? cipCopFind(cycles, cipSelDateStr()) : null;
+  var steps = start ? cycles[start].steps : {};
+  var filled = items.filter(function(s){ return !!steps[s.key]; }).length;
+  var hint = '';
+  if(!loaded) hint = '불러오는 중…';
+  else if(start){
+    var d = cipParseKey(start);
+    hint = '시행일 : '+cipFmtYmd(d)+'<br>차기 시행일 : '+cipFmtYmd(cipAddMonths(d, 6));
+  }
+  var sd = { ph:'', steps:steps };
   var body = items.map(function(s){ return cipStepCardHtml(s, sd, 'cipSetCop'); }).join('');
   return '<div class="cipacc'+(cipOpenSec.cop?' open':'')+'">'+
       cipAccHead('cop', CIP_COP_STEPS.sec, filled+'/'+items.length, filled===items.length, false, hint)+
@@ -2060,7 +2121,7 @@ function renderWashCip(lineId){
         ? '<div class="cipacc-body"><textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+cipEsc(week.notes)+'</textarea></div>'
         : '')+
     '</div>'+
-    (lineId===2 ? cipCopHtml(week) : '');
+    (lineId===2 ? cipCopHtml(lineId) : '');
   document.getElementById('screen-root').innerHTML = html;
 }
 /* One item's checklist (the tabs of its line's form) for the chosen day */
