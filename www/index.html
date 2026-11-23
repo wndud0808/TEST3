@@ -156,6 +156,16 @@ button.menubar.wash:hover{border-color:var(--wash-primary);}
 .cipday{position:relative;}
 .cipday-dot{position:absolute;top:5px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 1.5px var(--surface-2);}
 .cipday.on .cipday-dot{box-shadow:0 0 0 1.5px var(--primary);}
+.cipitems{display:flex;flex-direction:column;gap:8px;}
+.cipitem{width:100%;display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:14px;border:0.5px solid var(--border);background:var(--surface-2);text-align:left;}
+.cipitem:hover{border-color:var(--primary);}
+.cipitem-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+.cipitem-name{font-size:15px;font-weight:700;color:var(--text-primary);overflow-wrap:anywhere;}
+.cipitem-prog{font-size:11.5px;color:var(--text-muted);font-family:var(--font-mono);}
+.cipitem.err{border-color:var(--danger);background:var(--danger-bg);}
+.cipitem.err .cipitem-prog{color:var(--danger);font-weight:700;}
+.cipitem-chev{display:flex;flex:0 0 auto;color:var(--text-muted);transform:rotate(180deg);}
+.cipitem-date{font-family:var(--font-mono);font-size:13px;color:var(--text-secondary);}
 .cipacc-body{display:flex;flex-direction:column;gap:10px;}
 
 .wcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
@@ -500,6 +510,7 @@ function emptyDay(){
 var state = { byDate:{} };
 var currentDateStr = todayStr();
 var dayListeners = {};
+var slotLoaded = {};
 var dateIndexCache = {};
 var dateIndexListenerAttached = false;
 
@@ -544,15 +555,23 @@ function attachDayListener(dateStr){
   if(dayListeners[dateStr]) return;
   dayListeners[dateStr] = true;
   [1,2,3,4].forEach(function(lineId){
-    for(var slot=0; slot<4; slot++){
-      (function(lineId, slot){
-        fbOn('days/'+dateStr+'/lines/'+lineId+'/slots/'+slot, function(snap){
-          if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
-          state.byDate[dateStr].lines[lineId].slots[slot] = normalizeJob(snap.val());
-          if(dateStr===currentDateStr) render();
-        });
-      })(lineId, slot);
-    }
+    for(var slot=0; slot<4; slot++) attachSlotListener(dateStr, lineId, slot);
+  });
+}
+/* One listener per slot; the CIP checklist attaches just the line it shows
+   (4 slots) instead of the whole day, and re-uses these when the journal
+   already attached them. */
+function attachSlotListener(dateStr, lineId, slot){
+  var key = dateStr+'|'+lineId+'|'+slot;
+  if(dayListeners[key]) return;
+  dayListeners[key] = true;
+  fbOn('days/'+dateStr+'/lines/'+lineId+'/slots/'+slot, function(snap){
+    if(!state.byDate[dateStr]) state.byDate[dateStr] = emptyDay();
+    state.byDate[dateStr].lines[lineId].slots[slot] = normalizeJob(snap.val());
+    slotLoaded[key] = true;
+    var cipDate = cipScreenDate();
+    if(cipDate!==null){ if(dateStr===cipDate) cipRefresh(); }
+    else if(dateStr===currentDateStr) render();
   });
 }
 function attachDateIndexListener(){
@@ -1484,13 +1503,21 @@ function cipDayDate(weekKey, i){
   var p = weekKey.split('-');
   return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10)+i);
 }
+function cipEmptySlot(){ return { ph:'', steps:{} }; }
+function normalizeCipSlot(r){
+  var steps = {};
+  if(r && r.steps){ Object.keys(r.steps).forEach(function(k){ if(r.steps[k]) steps[k] = r.steps[k]; }); }
+  return { ph:(r && r.ph) || '', steps:steps };
+}
+/* One record per journal item (slot 0-3) per weekday, so a day can hold
+   several checklists - one for each item entered in the journal. */
 function normalizeCipWeek(raw){
   var days = [];
   for(var i=0;i<5;i++){
     var r = raw && raw.days && raw.days[i];
-    var steps = {};
-    if(r && r.steps){ Object.keys(r.steps).forEach(function(k){ if(r.steps[k]) steps[k] = r.steps[k]; }); }
-    days.push({ ph:(r && r.ph) || '', steps:steps });
+    var slots = [];
+    for(var s=0;s<4;s++) slots.push(normalizeCipSlot(r && r.slots && r.slots[s]));
+    days.push({ slots:slots });
   }
   return { days:days, notes:(raw && raw.notes) || '' };
 }
@@ -1509,13 +1536,28 @@ function cipEnsure(lineId, weekKey){
       if(JSON.stringify(next)===JSON.stringify(cipData[k])) return;
       cipData[k] = next;
       var top = nav[nav.length-1];
-      if(top && top.screen==='washCip' && top.lineId===lineId && cipWeekKey===weekKey) renderWashCip(lineId);
+      if(top && (top.screen==='washCip' || top.screen==='washCipItem') && top.lineId===lineId && cipWeekKey===weekKey) cipRefresh();
     });
   }
   return cipData[k];
 }
-function cipSave(lineId, weekKey){
-  fbSet('cip/'+lineId+'/'+weekKey, cipData[cipKey(lineId, weekKey)]);
+function cipSaveSlot(lineId, weekKey, dayIdx, slot){
+  fbSet('cip/'+lineId+'/'+weekKey+'/days/'+dayIdx+'/slots/'+slot, cipData[cipKey(lineId, weekKey)].days[dayIdx].slots[slot]);
+}
+function cipSaveNotes(lineId, weekKey){
+  fbSet('cip/'+lineId+'/'+weekKey+'/notes', cipData[cipKey(lineId, weekKey)].notes);
+}
+/* A journal item was deleted: remove its checklist record as well, so a new
+   item later added to the same slot doesn't inherit the old one's answers. */
+function cipClearSlot(lineId, dateStr, slot){
+  var p = dateStr.split('-');
+  var dt = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+  var wd = (dt.getDay()+6)%7;
+  if(wd>4) return;
+  var weekKey = cipMondayKey(dt);
+  var k = cipKey(lineId, weekKey);
+  if(cipData[k]) cipData[k].days[wd].slots[slot] = cipEmptySlot();
+  fbSet('cip/'+lineId+'/'+weekKey+'/days/'+wd+'/slots/'+slot, null);
 }
 /* CIP_DATA_END */
 
@@ -1600,8 +1642,7 @@ function pickCipWeek(dateStr){
 var cipOpenSec = {};
 function cipToggleSec(k){
   cipOpenSec[k] = !cipOpenSec[k];
-  var top = nav[nav.length-1];
-  renderWashCip(top.lineId);
+  cipRefresh();
 }
 
 function cipPickDay(i){
@@ -1609,24 +1650,52 @@ function cipPickDay(i){
   var top = nav[nav.length-1];
   renderWashCip(top.lineId);
 }
+var cipSlotIdx = 0;
 function cipCur(){
   var top = nav[nav.length-1];
   return { lineId:top.lineId, week:cipEnsure(top.lineId, cipWeekKey) };
 }
+function cipCurSlot(c){ return c.week.days[cipDayIdx].slots[cipSlotIdx]; }
+function cipRefresh(){
+  var top = nav[nav.length-1];
+  if(!top) return;
+  if(top.screen==='washCipItem') renderWashCipItem(top.lineId);
+  else if(top.screen==='washCip') renderWashCip(top.lineId);
+}
+function cipSelDateStr(){ return dateKey(cipDayDate(cipWeekKey, cipDayIdx)); }
+function cipScreenDate(){
+  var top = nav[nav.length-1];
+  if(top && (top.screen==='washCip' || top.screen==='washCipItem') && cipWeekKey) return cipSelDateStr();
+  return null;
+}
+function cipJob(dateStr, lineId, slot){
+  var d = state.byDate[dateStr];
+  return d ? d.lines[lineId].slots[slot] : null;
+}
+function cipLineLoaded(dateStr, lineId){
+  for(var s=0; s<4; s++) if(!slotLoaded[dateStr+'|'+lineId+'|'+s]) return false;
+  return true;
+}
+function cipAttachLine(dateStr, lineId){
+  for(var s=0; s<4; s++) attachSlotListener(dateStr, lineId, s);
+}
+function openCipItem(lineId, slot){
+  push({screen:'washCipItem', lineId:lineId, slot:slot, weekKey:cipWeekKey, dayIdx:cipDayIdx});
+}
 function cipSetNotes(v){
   var c = cipCur(); c.week.notes = v.trim();
-  cipSave(c.lineId, cipWeekKey);
+  cipSaveNotes(c.lineId, cipWeekKey);
 }
 function cipSetStep(key, val){
-  var c = cipCur(); var steps = c.week.days[cipDayIdx].steps;
+  var c = cipCur(); var steps = cipCurSlot(c).steps;
   if(steps[key]===val) delete steps[key]; else steps[key] = val;
-  cipSave(c.lineId, cipWeekKey);
-  renderWashCip(c.lineId);
+  cipSaveSlot(c.lineId, cipWeekKey, cipDayIdx, cipSlotIdx);
+  cipRefresh();
 }
 function cipSetPh(v){
-  var c = cipCur(); c.week.days[cipDayIdx].ph = String(v).trim();
-  cipSave(c.lineId, cipWeekKey);
-  renderWashCip(c.lineId);
+  var c = cipCur(); cipCurSlot(c).ph = String(v).trim();
+  cipSaveSlot(c.lineId, cipWeekKey, cipDayIdx, cipSlotIdx);
+  cipRefresh();
 }
 function cipEsc(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1643,43 +1712,30 @@ function cipStepMeta(s){
   parts.push(s.zone);
   return parts.join(' · ');
 }
-function renderWashCip(lineId){
-  renderAppBar(lineId+'호기 · 당류 CIP 체크리스트', {showBack:true});
-  var week = cipEnsure(lineId, cipWeekKey);
-  var day = week.days[cipDayIdx];
-  var mon = cipDayDate(cipWeekKey, 0), fri = cipDayDate(cipWeekKey, 4);
-  var isCurrentWeek = cipWeekKey >= cipMondayKey(new Date());
-  var rangeText = mon.getFullYear()+'.'+pad(mon.getMonth()+1)+'.'+pad(mon.getDate())+' ~ '+pad(fri.getMonth()+1)+'.'+pad(fri.getDate());
-
-  var html =
-    '<div class="cipweek">'+
-      '<button class="cipweek-btn" onclick="cipShiftWeek(-1)" aria-label="이전 주">'+ICON.back+'</button>'+
-      '<button class="cipweek-title" onclick="openCipCalendar()" aria-label="달력에서 주차 선택">'+rangeText+CIP_CAL_ICON+'</button>'+
-      '<button class="cipweek-btn" onclick="cipShiftWeek(1)" aria-label="다음 주" style="transform:rotate(180deg);"'+(isCurrentWeek?' disabled':'')+'>'+ICON.back+'</button>'+
-    '</div>'+
-    '<div class="cipdays">'+
-      CIP_DAYS.map(function(name, i){
-        var d = cipDayDate(cipWeekKey, i);
-        var over = cipPhOver(week.days[i].ph);
-        return '<button class="cipday'+(i===cipDayIdx?' on':'')+'" onclick="cipPickDay('+i+')">'+name+'<span>'+d.getDate()+'</span>'+(over ? '<i class="cipday-dot" title="pH 기준 초과"></i>' : '')+'</button>';
-      }).join('')+
-    '</div>';
-
-  function accHead(key, label, countText, isDone, isWarn){
-    var open = !!cipOpenSec[key];
-    return '<button type="button" class="cipacc-head'+(isDone?' done':'')+(isWarn?' warn':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
-      '<span>'+label+'</span><span class="cnt">'+countText+'</span>'+
-      '<span class="cipacc-chev">'+ICON.back+'</span></button>';
-  }
+function cipAccHead(key, label, countText, isDone, isWarn){
+  var open = !!cipOpenSec[key];
+  return '<button type="button" class="cipacc-head'+(isDone?' done':'')+(isWarn?' warn':'')+'" aria-expanded="'+open+'" onclick="cipToggleSec(\''+key+'\')">'+
+    '<span>'+label+'</span><span class="cnt">'+countText+'</span>'+
+    '<span class="cipacc-chev">'+ICON.back+'</span></button>';
+}
+function cipSecFilled(group, sd){
+  return group.items.filter(function(s){ return s.ph ? sd.ph!=='' : !!sd.steps[s.key]; }).length;
+}
+function cipDayPhOver(week, i){
+  return week.days[i].slots.some(function(sd){ return cipPhOver(sd.ph); });
+}
+/* 온수 / 가성 collapsible tabs for one item's record */
+function cipGroupsHtml(sd){
+  var html = '';
   CIP_STEPS.forEach(function(group){
-    var filled = group.items.filter(function(s){ return s.ph ? day.ph!=='' : !!day.steps[s.key]; }).length;
+    var filled = cipSecFilled(group, sd);
     var secKey = 'sec-'+group.sec;
-    var phOver = group.items.some(function(s){ return s.ph && cipPhOver(day.ph); });
+    var phOver = group.items.some(function(s){ return s.ph && cipPhOver(sd.ph); });
     var body = '';
     group.items.forEach(function(s){
       var control, stepErr = false;
       if(s.ph){
-        var v = day.ph;
+        var v = sd.ph;
         var num = parseFloat(v);
         var status = '';
         if(v!=='' && !isNaN(num)){
@@ -1693,7 +1749,7 @@ function renderWashCip(lineId){
             (stepErr ? '<div class="cipph-err">⚠ 오류: pH '+cipEsc(v)+' — 기준('+CIP_PH_LIMIT+' 이하)을 초과했습니다. 값을 다시 확인하세요.</div>' : '')+
           '</div>';
       } else {
-        var val = day.steps[s.key] || null;
+        var val = sd.steps[s.key] || null;
         control =
           '<div class="cipox">'+
             '<button type="button" class="btn '+(val==='O'?'btn-primary':'btn-outline')+'" onclick="cipSetStep(\''+s.key+'\',\'O\')">O</button>'+
@@ -1710,20 +1766,95 @@ function renderWashCip(lineId){
     });
     html +=
       '<div class="cipacc'+(cipOpenSec[secKey]?' open':'')+'">'+
-        accHead(secKey, group.sec, (phOver ? '⚠ pH 초과 · ' : '')+filled+'/'+group.items.length, filled===group.items.length, phOver)+
+        cipAccHead(secKey, group.sec, (phOver ? '⚠ pH 초과 · ' : '')+filled+'/'+group.items.length, filled===group.items.length, phOver)+
         (cipOpenSec[secKey] ? '<div class="cipacc-body">'+body+'</div>' : '')+
       '</div>';
   });
+  return html;
+}
+/* Week + day picker, then one row per item entered in the 소비기한 일지 for
+   that day and line (derived live from the journal, so adding or deleting
+   an item there adds or removes its row here). */
+function renderWashCip(lineId){
+  renderAppBar(lineId+'호기 · 당류 CIP 체크리스트', {showBack:true});
+  var week = cipEnsure(lineId, cipWeekKey);
+  var dateStr = cipSelDateStr();
+  cipAttachLine(dateStr, lineId);
+  var dayData = week.days[cipDayIdx];
+  var mon = cipDayDate(cipWeekKey, 0), fri = cipDayDate(cipWeekKey, 4);
+  var isCurrentWeek = cipWeekKey >= cipMondayKey(new Date());
+  var rangeText = mon.getFullYear()+'.'+pad(mon.getMonth()+1)+'.'+pad(mon.getDate())+' ~ '+pad(fri.getMonth()+1)+'.'+pad(fri.getDate());
+
+  var html =
+    '<div class="cipweek">'+
+      '<button class="cipweek-btn" onclick="cipShiftWeek(-1)" aria-label="이전 주">'+ICON.back+'</button>'+
+      '<button class="cipweek-title" onclick="openCipCalendar()" aria-label="달력에서 주차 선택">'+rangeText+CIP_CAL_ICON+'</button>'+
+      '<button class="cipweek-btn" onclick="cipShiftWeek(1)" aria-label="다음 주" style="transform:rotate(180deg);"'+(isCurrentWeek?' disabled':'')+'>'+ICON.back+'</button>'+
+    '</div>'+
+    '<div class="cipdays">'+
+      CIP_DAYS.map(function(name, i){
+        var d = cipDayDate(cipWeekKey, i);
+        var over = cipDayPhOver(week, i);
+        return '<button class="cipday'+(i===cipDayIdx?' on':'')+'" onclick="cipPickDay('+i+')">'+name+'<span>'+d.getDate()+'</span>'+(over ? '<i class="cipday-dot" title="pH 기준 초과"></i>' : '')+'</button>';
+      }).join('')+
+    '</div>';
+
+  var items = '';
+  if(!cipLineLoaded(dateStr, lineId)){
+    items = '<div class="hint" style="margin:0;text-align:center;padding:20px 0;">불러오는 중…</div>';
+  } else {
+    for(var slot=0; slot<4; slot++){
+      var job = cipJob(dateStr, lineId, slot);
+      if(!job) continue;
+      var sd = dayData.slots[slot];
+      var over = cipPhOver(sd.ph);
+      var prog = CIP_STEPS.map(function(g){ return g.sec+' '+cipSecFilled(g, sd)+'/'+g.items.length; }).join(' · ');
+      items +=
+        '<button type="button" class="cipitem'+(over?' err':'')+'" onclick="openCipItem('+lineId+','+slot+')">'+
+          '<span class="cipstep-n">'+(slot+1)+'</span>'+
+          '<span class="cipitem-main">'+
+            '<span class="cipitem-name">'+cipEsc(job.product+' '+job.weight)+'</span>'+
+            '<span class="cipitem-prog">'+(over ? '⚠ pH 초과 · ' : '')+prog+'</span>'+
+          '</span>'+
+          '<span class="cipitem-chev">'+ICON.back+'</span>'+
+        '</button>';
+    }
+    if(!items){
+      items = '<div class="hint" style="margin:0;text-align:center;padding:20px 0;">이 날짜에 소비기한 일지에 등록된 품목이 없어요.<br>소비기한 일지에서 품목을 추가하면 여기에 자동으로 나타나요.</div>';
+    }
+  }
+  html += '<div class="eyebrow">품목</div><div class="cipitems">'+items+'</div>';
 
   html +=
     '<div class="cipacc'+(cipOpenSec.notes?' open':'')+'">'+
-      accHead('notes', '특이사항 (이번 주)', week.notes ? '작성됨' : '', !!week.notes)+
+      cipAccHead('notes', '특이사항 (이번 주)', week.notes ? '작성됨' : '', !!week.notes)+
       (cipOpenSec.notes
         ? '<div class="cipacc-body"><textarea class="textinput" style="height:84px;padding:10px 12px;" placeholder="특이사항을 입력하세요" onchange="cipSetNotes(this.value)">'+cipEsc(week.notes)+'</textarea></div>'
         : '')+
-    '</div>'+
-    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>';
+    '</div>';
   document.getElementById('screen-root').innerHTML = html;
+}
+/* One item's 온수 / 가성 checklist for the chosen day */
+function renderWashCipItem(lineId){
+  var top = nav[nav.length-1];
+  cipWeekKey = top.weekKey; cipDayIdx = top.dayIdx; cipSlotIdx = top.slot;
+  var dateStr = cipSelDateStr();
+  cipAttachLine(dateStr, lineId);
+  var job = cipJob(dateStr, lineId, top.slot);
+  renderAppBar(lineId+'호기 · '+(job ? cipEsc(job.product+' '+job.weight) : '품목'), {showBack:true});
+  var root = document.getElementById('screen-root');
+  if(!job){
+    root.innerHTML = '<div class="hint" style="margin:0;text-align:center;padding:48px 0;">'+
+      (cipLineLoaded(dateStr, lineId) ? '이 품목은 소비기한 일지에서 삭제되었어요.' : '불러오는 중…')+'</div>';
+    return;
+  }
+  var sd = cipEnsure(lineId, cipWeekKey).days[cipDayIdx].slots[top.slot];
+  var d = cipDayDate(cipWeekKey, cipDayIdx);
+  var html =
+    '<div class="cipitem-date">'+d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate())+' ('+CIP_DAYS[cipDayIdx]+')</div>'+
+    cipGroupsHtml(sd)+
+    '<div class="hint" style="margin:0;">실시 : O · 미실시 : X<br>※ 가성 CIP (3) pH확인 : 실측값을 작성 ▶ pH 기준 : 7.5 이하</div>';
+  root.innerHTML = html;
 }
 function renderAdminLogin(){
   renderAppBar('관리자 로그인', {showBack:true});
@@ -2077,6 +2208,7 @@ function deleteJob(lineId, slot){
   document.getElementById('confirm-overlay').hidden = true;
   setJob(lineId, slot, null);
   saveState(lineId, slot);
+  cipClearSlot(lineId, currentDateStr, slot);
   deleteModeLine = null;
   var top = nav[nav.length-1];
   if(top && top.screen==='tracking' && top.lineId===lineId && top.slot===slot){
@@ -2214,6 +2346,7 @@ function render(){
   else if(top.screen==='washChecklist') renderWashChecklist();
   else if(top.screen==='washLine') renderWashLine(top.lineId);
   else if(top.screen==='washCip') renderWashCip(top.lineId);
+  else if(top.screen==='washCipItem') renderWashCipItem(top.lineId);
   else if(top.screen==='adminLogin') renderAdminLogin();
   else if(top.screen==='adminCalendar') renderAdminCalendar();
   else if(top.screen==='home') renderHome();
