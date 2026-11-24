@@ -1,6 +1,10 @@
 # Web preview of the app at https://wndud0808.github.io/TEST3/
 # Requires Settings > Pages > Source = "GitHub Actions" (enabled).
-# Re-run trigger: if the deploy step fails with a transient "No artifacts named github-pages", bump this line. Last bump: 2026-11-24 #2
+#
+# Build and deploy are separate jobs (GitHub's recommended layout): when the artifact
+# was uploaded and deployed inside one job, the deploy step sometimes failed with
+# "No artifacts named github-pages" right after the upload. If a deploy still fails
+# that way, re-run it from the Actions tab ("Re-run failed jobs").
 name: Deploy web preview to GitHub Pages
 
 on:
@@ -24,11 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -46,6 +47,13 @@ jobs:
         with:
           path: www
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
