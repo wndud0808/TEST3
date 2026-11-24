@@ -2769,6 +2769,11 @@ async function fillCipSheet(wb, lineId, dateStr){
   return { sheet:true };
 }
 
+/* PC save name: date + time, so each export is its own file */
+function exportFilename(dateStr){
+  var n = new Date();
+  return dateStr+'_golden_time_'+pad(n.getHours())+pad(n.getMinutes())+pad(n.getSeconds())+'.xlsx';
+}
 async function exportDayExcel(dateStr){
   if(typeof ExcelJS==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'); return; }
 
@@ -2781,7 +2786,7 @@ async function exportDayExcel(dateStr){
   if(!isNativeApp && !window.claude && window.showSaveFilePicker){
     try{
       fileHandle = await window.showSaveFilePicker({
-        suggestedName: dateStr+'_golden_time.xlsx',
+        suggestedName: exportFilename(dateStr),
         types: [{ description:'Excel 통합 문서', accept:{ 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx'] } }]
       });
     }catch(e){
@@ -2844,12 +2849,13 @@ async function exportDayExcel(dateStr){
 
   /* desktop browser with a chosen save location */
   if(fileHandle){
+    lastExport = { buffer:buffer, filename:fileHandle.name || filename };
     try{
       var writable = await fileHandle.createWritable();
       await writable.write(buffer);
       await writable.close();
     }catch(e){
-      alert('엑셀 저장에 실패했어요: '+(e && e.message ? e.message : e));
+      showExportSaveFailed(e);
     }
     return;
   }
@@ -2864,6 +2870,56 @@ async function exportDayExcel(dateStr){
      large (photo-heavy) workbook takes longer - revoking too soon makes
      the download fail with a "check your connection" network error. */
   setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
+}
+
+/* The workbook that was just built stays in memory, so a failed save can be retried
+   (other name / other folder / plain browser download) without rebuilding it. */
+var lastExport = null;
+function showExportSaveFailed(err){
+  var detail = (err && (err.name || err.message)) ? ((err.name ? err.name+': ' : '')+(err.message || '')) : String(err);
+  document.getElementById('confirm-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>엑셀 저장에 실패했어요</h3>'+
+      '<div class="hint" style="margin:0;text-align:left;">같은 이름의 파일이 엑셀 등에서 열려 있거나, 선택한 폴더에 저장이 막혀 있을 수 있어요. 만든 엑셀은 그대로 있으니 아래에서 다시 저장해 보세요.</div>'+
+      '<div class="hint" style="margin:0;text-align:left;font-size:11px;word-break:break-all;">'+cipEsc(detail)+'</div>'+
+      '<button class="btn btn-primary" onclick="saveExportAs()">다른 이름·위치로 저장</button>'+
+      '<button class="btn btn-outline" onclick="downloadExportBlob()">브라우저 다운로드로 받기</button>'+
+      '<button class="btn btn-outline" onclick="closeExportDialog()">닫기</button>'+
+    '</div>';
+  document.getElementById('confirm-overlay').hidden = false;
+}
+function closeExportDialog(){ document.getElementById('confirm-overlay').hidden = true; }
+async function saveExportAs(){
+  if(!lastExport || !window.showSaveFilePicker) return;
+  var handle;
+  try{
+    handle = await window.showSaveFilePicker({
+      suggestedName: lastExport.filename.replace(/(\.xlsx)?$/, '')+'_2.xlsx',
+      types: [{ description:'Excel 통합 문서', accept:{ 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx'] } }]
+    });
+  }catch(e){
+    if(e && e.name==='AbortError') return;
+    showExportSaveFailed(e); return;
+  }
+  try{
+    var w = await handle.createWritable();
+    await w.write(lastExport.buffer);
+    await w.close();
+    lastExport.filename = handle.name || lastExport.filename;
+    closeExportDialog();
+  }catch(e){
+    showExportSaveFailed(e);
+  }
+}
+function downloadExportBlob(){
+  if(!lastExport) return;
+  var blob = new Blob([lastExport.buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = lastExport.filename.replace(/(\.xlsx)?$/, '')+'_dl.xlsx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
+  closeExportDialog();
 }
 
 var deleteModeLine = null;
