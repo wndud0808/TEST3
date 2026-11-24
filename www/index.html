@@ -2777,23 +2777,7 @@ function exportFilename(dateStr){
 async function exportDayExcel(dateStr){
   if(typeof ExcelJS==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.'); return; }
 
-  /* Desktop Chrome/Edge: ask for the save location up front (this must
-     happen straight from the click, before any await) and write the file
-     directly, instead of triggering a blob: link download, which Chrome
-     was failing with a "network error". */
   var isNativeApp = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem);
-  var fileHandle = null;
-  if(!isNativeApp && !window.claude && window.showSaveFilePicker){
-    try{
-      fileHandle = await window.showSaveFilePicker({
-        suggestedName: exportFilename(dateStr),
-        types: [{ description:'Excel 통합 문서', accept:{ 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx'] } }]
-      });
-    }catch(e){
-      if(e && e.name==='AbortError') return;
-      fileHandle = null;
-    }
-  }
 
   var resp = await fetch('./template.xlsx');
   if(!resp.ok){ alert('엑셀 템플릿을 불러오지 못했어요.'); return; }
@@ -2814,6 +2798,7 @@ async function exportDayExcel(dateStr){
 
   var buffer = await wb.xlsx.writeBuffer();
   var filename = dateStr+'_golden_time.xlsx';
+  var pcName = exportFilename(dateStr);
   var mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
   /* native app (Capacitor): save to device Documents + open native share sheet */
@@ -2847,80 +2832,39 @@ async function exportDayExcel(dateStr){
     return;
   }
 
-  /* desktop browser with a chosen save location */
-  if(fileHandle){
-    lastExport = { buffer:buffer, filename:fileHandle.name || filename };
-    try{
-      var writable = await fileHandle.createWritable();
-      await writable.write(buffer);
-      await writable.close();
-    }catch(e){
-      showExportSaveFailed(e);
-    }
-    return;
-  }
-
-  /* plain browser fallback */
-  var blob2 = new Blob([buffer], { type:mime });
-  var url = URL.createObjectURL(blob2);
-  var a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  /* Mobile browsers start the actual download well after click(), and a
-     large (photo-heavy) workbook takes longer - revoking too soon makes
-     the download fail with a "check your connection" network error. */
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
+  /* PC and mobile browsers: a normal browser download. The page can't see whether a browser
+     download succeeded, so the finished file stays in memory and a small sheet lets the user
+     start it again. */
+  lastExport = { buffer:buffer, filename:pcName };
+  startExportDownload();
+  showExportDownloadSheet();
 }
 
-/* The workbook that was just built stays in memory, so a failed save can be retried
-   (other name / other folder / plain browser download) without rebuilding it. */
 var lastExport = null;
-function showExportSaveFailed(err){
-  var detail = (err && (err.name || err.message)) ? ((err.name ? err.name+': ' : '')+(err.message || '')) : String(err);
+function startExportDownload(){
+  if(!lastExport) return;
+  var blob = new Blob([lastExport.buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = lastExport.filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  /* Browsers start the actual download well after click(), and a large (photo-heavy)
+     workbook takes longer - revoking too soon makes the download fail with a
+     "check your connection" network error. */
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
+}
+function showExportDownloadSheet(){
   document.getElementById('confirm-overlay').innerHTML =
     '<div class="sheet">'+
-      '<h3>엑셀 저장에 실패했어요</h3>'+
-      '<div class="hint" style="margin:0;text-align:left;">같은 이름의 파일이 엑셀 등에서 열려 있거나, 선택한 폴더에 저장이 막혀 있을 수 있어요. 만든 엑셀은 그대로 있으니 아래에서 다시 저장해 보세요.</div>'+
-      '<div class="hint" style="margin:0;text-align:left;font-size:11px;word-break:break-all;">'+cipEsc(detail)+'</div>'+
-      '<button class="btn btn-primary" onclick="saveExportAs()">다른 이름·위치로 저장</button>'+
-      '<button class="btn btn-outline" onclick="downloadExportBlob()">브라우저 다운로드로 받기</button>'+
+      '<h3>엑셀을 만들었어요</h3>'+
+      '<div class="hint" style="margin:0;text-align:left;word-break:break-all;">'+cipEsc(lastExport.filename)+'</div>'+
+      '<div class="hint" style="margin:0;text-align:left;">브라우저의 다운로드 목록(PC는 Ctrl+J)에서 확인하세요. 다운로드가 시작되지 않았으면 아래 버튼으로 다시 받을 수 있어요.</div>'+
+      '<button class="btn btn-primary" onclick="startExportDownload()">다시 받기</button>'+
       '<button class="btn btn-outline" onclick="closeExportDialog()">닫기</button>'+
     '</div>';
   document.getElementById('confirm-overlay').hidden = false;
 }
 function closeExportDialog(){ document.getElementById('confirm-overlay').hidden = true; }
-async function saveExportAs(){
-  if(!lastExport || !window.showSaveFilePicker) return;
-  var handle;
-  try{
-    handle = await window.showSaveFilePicker({
-      suggestedName: lastExport.filename.replace(/(\.xlsx)?$/, '')+'_2.xlsx',
-      types: [{ description:'Excel 통합 문서', accept:{ 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx'] } }]
-    });
-  }catch(e){
-    if(e && e.name==='AbortError') return;
-    showExportSaveFailed(e); return;
-  }
-  try{
-    var w = await handle.createWritable();
-    await w.write(lastExport.buffer);
-    await w.close();
-    lastExport.filename = handle.name || lastExport.filename;
-    closeExportDialog();
-  }catch(e){
-    showExportSaveFailed(e);
-  }
-}
-function downloadExportBlob(){
-  if(!lastExport) return;
-  var blob = new Blob([lastExport.buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url; a.download = lastExport.filename.replace(/(\.xlsx)?$/, '')+'_dl.xlsx';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 5*60*1000);
-  closeExportDialog();
-}
 
 var deleteModeLine = null;
 function toggleDeleteMode(lineId){
