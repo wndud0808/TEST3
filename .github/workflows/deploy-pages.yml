@@ -1,6 +1,6 @@
 # Web preview of the app at https://wndud0808.github.io/TEST3/
 # Requires Settings > Pages > Source = "GitHub Actions" (enabled).
-# 2026-11-24: first run failed with a transient "No artifacts named github-pages"; re-run by touching this file.
+# Re-run trigger: if the deploy step fails with a transient "No artifacts named github-pages", bump this line. Last bump: 2026-11-24 #2
 name: Deploy web preview to GitHub Pages
 
 on:
