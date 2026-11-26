@@ -1478,6 +1478,8 @@ function savePhoto(){
     document.getElementById('photo-err').textContent = '사진을 먼저 선택해 주세요.';
     return;
   }
+  /* a new picture must not keep the previous picture's reading */
+  if(photo!==cp.photo){ cp.ocrText = null; cp.ocrMatch = null; }
   cp.photo = photo;
   var timeInput = document.getElementById('cp-time-input');
   if(timeInput){
@@ -1732,14 +1734,19 @@ var ocrPending = {};
 async function runOcrCheck(lineId, slot, key, orig){
   var plugins = window.Capacitor && window.Capacitor.Plugins;
   if(!plugins || !plugins.TextRecognition || !plugins.Filesystem) return;
+  /* Reading takes seconds. Meanwhile the database listener replaces the job objects
+     (even for our own save of the photo) and the user may move to another date, so
+     remember only plain values here and look the checkpoint up again at the end. */
+  var dateStr = currentDateStr;
   var job = getJob(lineId, slot);
-  var cp = job.checkpoints[key];
-  if(!cp.photo || cp.photo.indexOf('data:')!==0) return;
-  var pk = currentDateStr+'|'+lineId+'|'+slot+'|'+key;
-  ocrPending[pk] = true;
+  var photo = job.checkpoints[key].photo;
+  if(!photo || photo.indexOf('data:')!==0) return;
+  var pk = dateStr+'|'+lineId+'|'+slot+'|'+key;
+  var run = (ocrPending[pk] || 0) + 1;
+  ocrPending[pk] = run;
   try{
-    var expected = computeConsumeDateStr(currentDateStr, job.product).replace(/-/g,'');
-    var variants = ocrVariants(cp.photo, orig);
+    var expected = computeConsumeDateStr(dateStr, job.product).replace(/-/g,'');
+    var variants = ocrVariants(photo, orig);
     var best = null;
     for(var i=0; i<variants.length; i++){
       var uri;
@@ -1751,12 +1758,22 @@ async function runOcrCheck(lineId, slot, key, orig){
       if(!best || score>best.score) best = { text:text, j:j, score:score };
       if(j.status==='match') break;
     }
-    cp.ocrText = (best && best.text) || null;
-    /* kept for older app versions, which only know match / mismatch */
-    cp.ocrMatch = (best && best.j.status==='match') ? 'match' : (cp.ocrText ? 'mismatch' : null);
-    saveState(lineId, slot);
+    var day = state.byDate[dateStr];
+    var now = day && day.lines[lineId].slots[slot];
+    var cp = now && now.checkpoints[key];
+    /* deleted or retaken in the meantime: this reading no longer belongs anywhere */
+    if(cp && cp.photo===photo && ocrPending[pk]===run){
+      var text2 = (best && best.text) || null;
+      /* kept for older app versions, which only know match / mismatch */
+      var match = (best && best.j.status==='match') ? 'match' : (text2 ? 'mismatch' : null);
+      cp.ocrText = text2; cp.ocrMatch = match;
+      /* write just the two result fields, so nothing else entered meanwhile is overwritten */
+      var base = 'days/'+dateStr+'/lines/'+lineId+'/slots/'+slot+'/checkpoints/'+key+'/';
+      fbSet(base+'ocrText', text2);
+      fbSet(base+'ocrMatch', match);
+    }
   } finally {
-    delete ocrPending[pk];
+    if(ocrPending[pk]===run) delete ocrPending[pk];
   }
   render();
 }
