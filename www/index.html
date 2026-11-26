@@ -2637,7 +2637,7 @@ async function fillJournalSheet(wb, lineId, dateStr){
   return { sheet:true, omitted:rows.length-count };
 }
 
-/* ---- CIP 체크리스트 (the Mon-Fri week of the exported day) ---- */
+/* ---- CIP 체크리스트 (the Mon-Fri week of the exported day, filled up to that day) ---- */
 async function xfDayItems(dateStr, lineId){
   var local = state.byDate[dateStr], loaded = !!local, s;
   for(s=0; s<4; s++) if(!slotLoaded[dateStr+'|'+lineId+'|'+s]) loaded = false;
@@ -2668,9 +2668,17 @@ async function cipExportData(lineId, dateStr){
   var res = await Promise.all([
     xfRead('cip/'+lineId+'/'+weekKey),
     lineId===2 ? xfRead('cipCop/'+lineId) : null,
-    Promise.all(dates.map(function(d){ return xfDayItems(d, lineId); }))
+    Promise.all(dates.map(function(d){ return d<=dateStr ? xfDayItems(d, lineId) : []; }))
   ]);
-  return { weekKey:weekKey, dates:dates, week:normalizeCipWeek(res[0]), cycles:normalizeCopCycles(res[1]), items:res[2] };
+  /* Nothing later than the exported day goes on the sheet: later days stay blank and a
+     가성 COP started afterwards is left out. (The weekly 특이사항 has no date of its own.) */
+  var week = normalizeCipWeek(res[0]);
+  week.days.forEach(function(day, i){
+    if(dates[i]>dateStr) day.slots = day.slots.map(function(){ return { ph:'', steps:{} }; });
+  });
+  var all = normalizeCopCycles(res[1]), cycles = {};
+  Object.keys(all).forEach(function(start){ if(start<=dateStr) cycles[start] = all[start]; });
+  return { weekKey:weekKey, dates:dates, week:week, cycles:cycles, items:res[2] };
 }
 /* One cell per step and day, whatever the number of items that day: any X -> X,
    otherwise any O -> O; unanswered items are ignored. */
@@ -2724,7 +2732,9 @@ async function fillCipSheet(wb, lineId, dateStr){
   var copStart = null;
   if(lineId===2){
     var cycles = d.cycles;
-    for(var ci=0; ci<5 && copStart===null; ci++) copStart = cipCopFind(cycles, d.dates[ci]);
+    for(var ci=0; ci<5 && copStart===null; ci++){
+      if(d.dates[ci]<=dateStr) copStart = cipCopFind(cycles, d.dates[ci]);
+    }
     d.dates.forEach(function(date, di){
       if(!cycles[date]) return;
       CIP_COP_STEPS.items.forEach(function(step, idx){
@@ -2758,7 +2768,7 @@ async function fillCipSheet(wb, lineId, dateStr){
     for(di2=0; di2<5 && !sigOwner; di2++){
       for(ii=0; ii<d.items[di2].length && !sigOwner; ii++) sigOwner = await xfItemSignature(d.items[di2][ii]);
     }
-    for(di2=0; di2<5 && !sigLeader; di2++){
+    for(di2=0; di2<5 && !sigLeader && d.dates[di2]<=dateStr; di2++){
       var apd = await xfApprovals(d.dates[di2], lineId);
       if(apd.pm) sigLeader = apd.pm.signature;
     }
@@ -3225,7 +3235,22 @@ function render(){
 }
 
 var LATEST_URL = 'https://wndud0808.github.io/TEST3/';
+/* Capacitor plugins (OCR, file saving, sharing) exist only on the installed app's own
+   bundled page. If the app shows the web copy instead (older versions redirected there
+   on "업데이트"), the Android bridge object is present but Capacitor is not. */
+function isInstalledApp(){
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+function isAppOnWebCopy(){
+  return !window.Capacitor && !!window.androidBridge;
+}
 function checkForUpdate(){
+  if(isAppOnWebCopy()){ showReinstallPopup(); return; }
+  if(isInstalledApp()){
+    /* never move the app to the web copy; nativeCheckForUpdate() offers the new APK */
+    try{ localStorage.removeItem('autoWebUpdate'); }catch(e){}
+    return;
+  }
   fetch('./version.json', { cache:'no-store' })
     .then(function(r){ return r.json(); })
     .then(function(local){
@@ -3252,11 +3277,21 @@ function showUpdatePopup(){
     '</div>';
   document.getElementById('update-overlay').hidden = false;
 }
-/* The update only swaps the page for the live Pages copy; the installed
-   APK still launches from its bundled (older) files, so without
-   remembering the choice the popup came back on every cold start. Once
-   the user has accepted an update, later launches load the latest copy
-   directly instead of asking again. */
+function showReinstallPopup(){
+  document.getElementById('update-overlay').innerHTML =
+    '<div class="sheet">'+
+      '<h3>새 앱을 설치해 주세요</h3>'+
+      '<div class="hint" style="margin:0;">지금 화면에서는 날짜 자동 판독(OCR)이 안 돼요. 새 앱을 내려받아 지금 앱 위에 설치해 주세요. 기존 앱은 삭제하지 마세요.</div>'+
+      '<div class="hint" style="margin:0;font-size:11px;word-break:break-all;">버튼이 안 되면 Chrome에서 열어 주세요: github.com/wndud0808/TEST3/releases</div>'+
+      '<div class="btnrow">'+
+        '<button class="btn btn-outline" onclick="document.getElementById(\'update-overlay\').hidden=true">나중에</button>'+
+        '<button class="btn btn-primary" onclick="window.location.href=RELEASE_APK_URL">다운로드</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('update-overlay').hidden = false;
+}
+/* Browsers only: once the user has accepted an update, later visits load the
+   latest copy directly instead of asking again. */
 function webUpdateOptedIn(){
   try{ return localStorage.getItem('autoWebUpdate')==='1'; }catch(e){ return false; }
 }
